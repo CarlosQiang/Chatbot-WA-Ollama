@@ -1,0 +1,143 @@
+name: local-ai-hub
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: local-ai-hub-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - local-ai-hub-postgres-data:/var/lib/postgresql/data
+    networks:
+      - local-ai-hub-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: local-ai-hub-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_PORT}:6379"
+    volumes:
+      - local-ai-hub-redis-data:/data
+    networks:
+      - local-ai-hub-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      network: host
+    container_name: local-ai-hub-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      PORT: ${BACKEND_INTERNAL_PORT}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      OPENWA_API_URL: ${OPENWA_API_URL}
+      OPENWA_API_KEY: ${OPENWA_API_KEY}
+      OPENWA_SESSION_ID: ${OPENWA_SESSION_ID}
+      OPENWA_SESSION_NAME: ${OPENWA_SESSION_NAME}
+      OPENWA_SESSION_PHONE: ${OPENWA_SESSION_PHONE}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
+      OLLAMA_FALLBACK_URLS: ${OLLAMA_FALLBACK_URLS:-}
+      OLLAMA_DEFAULT_MODEL: ${OLLAMA_DEFAULT_MODEL}
+      OLLAMA_TIMEOUT_MS: ${OLLAMA_TIMEOUT_MS}
+      BACKEND_API_KEY: ${BACKEND_API_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGIN: ${CORS_ORIGIN}
+      LOG_LEVEL: ${LOG_LEVEL}
+      TZ: ${TZ:-Europe/Madrid}
+      REMINDER_TZ: ${REMINDER_TZ:-Europe/Madrid}
+      WEBHOOK_URL: ${WEBHOOK_URL}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET}
+      CHAT_CONTEXT_MAX_MESSAGES: ${CHAT_CONTEXT_MAX_MESSAGES}
+      CHAT_SYSTEM_PROMPT: ${CHAT_SYSTEM_PROMPT}
+      TEST_WHATSAPP_CHAT_ID: ${TEST_WHATSAPP_CHAT_ID}
+      ALLOWED_CHAT_IDS: ${ALLOWED_CHAT_IDS}
+      ADMIN_CHAT_IDS: ${ADMIN_CHAT_IDS:-}
+      BOT_MODE_DEFAULT: ${BOT_MODE_DEFAULT:-private}
+      OPEN_TO_ALL: ${OPEN_TO_ALL:-false}
+      POLL_ENABLED: ${POLL_ENABLED}
+      POLL_INTERVAL_MS: ${POLL_INTERVAL_MS}
+      TELEGRAM_ENABLED: ${TELEGRAM_ENABLED}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_ALLOWED_USER_IDS: ${TELEGRAM_ALLOWED_USER_IDS}
+      TELEGRAM_POLL_INTERVAL_MS: ${TELEGRAM_POLL_INTERVAL_MS}
+    ports:
+      - "${BACKEND_PORT}:${BACKEND_INTERNAL_PORT}"
+    volumes:
+      - local-ai-hub-backend-data:/app/data
+    networks:
+      - local-ai-hub-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${BACKEND_INTERNAL_PORT}/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL}
+        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME}
+    container_name: local-ai-hub-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      PORT: 3000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL}
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME}
+    ports:
+      - "${FRONTEND_PORT}:3000"
+    networks:
+      - local-ai-hub-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+networks:
+  local-ai-hub-network:
+    name: local-ai-hub-network
+    driver: bridge
+
+volumes:
+  local-ai-hub-postgres-data:
+    name: local-ai-hub-postgres-data
+  local-ai-hub-redis-data:
+    name: local-ai-hub-redis-data
+  local-ai-hub-backend-data:
+    name: local-ai-hub-backend-data

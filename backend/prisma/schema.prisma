@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id            String   @id @default(cuid())
+  sessionId     String   @unique
+  name          String
+  phone         String?
+  status        String   @default("unknown")
+  lastSeenAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Chat {
+  id          String    @id @default(cuid())
+  chatId      String    @unique
+  phone       String?
+  displayName String?
+  model       String?
+  lastMessageAt DateTime?
+  messageCount Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  messages    Message[]
+
+  @@index([lastMessageAt])
+}
+
+model Message {
+  id         String   @id @default(cuid())
+  chatId     String
+  direction  String   // "in" | "out"
+  role       String   // "user" | "assistant" | "system"
+  body       String   @db.Text
+  model      String?
+  status     String   @default("ok") // ok | error | pending
+  error      String?  @db.Text
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  chat       Chat     @relation(fields: [chatId], references: [chatId], onDelete: Cascade)
+
+  @@index([chatId, createdAt])
+  @@index([createdAt])
+}
+
+model Setting {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+}
+
+model Log {
+  id        String   @id @default(cuid())
+  level     String   // info | warn | error | debug
+  source    String   // openwa | ollama | chat | webhook | system
+  message   String   @db.Text
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([level])
+  @@index([source])
+}
+
+model Reminder {
+  id            String    @id @default(cuid())
+  text          String    @db.Text
+  target        String    // 'telegram' | 'whatsapp'
+  targetChatId  String    // tg user id o wa chatId
+  // Disparo: o fireAt (puntual) o cronExpression (recurrente)
+  fireAt        DateTime?
+  cronExpression String?
+  active        Boolean   @default(true)
+  lastFiredAt   DateTime?
+  createdBy     String?   // tg user id que lo creó
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([active, fireAt])
+  @@index([active, cronExpression])
+}
