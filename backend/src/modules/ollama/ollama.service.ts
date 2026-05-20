@@ -42,7 +42,7 @@ export class OllamaService implements OnModuleDestroy {
     private readonly logs: LogsService,
     private readonly settings: SettingsService,
   ) {
-    this.timeoutMs = parseInt(process.env.OLLAMA_TIMEOUT_MS || '120000', 10);
+    this.timeoutMs = parseInt(process.env.OLLAMA_TIMEOUT_MS || '180000', 10);
   }
 
   onModuleDestroy() {

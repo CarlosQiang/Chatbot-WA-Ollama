@@ -10,14 +10,23 @@ export const api = axios.create({
   timeout: 30_000,
 });
 
+// Cliente con timeout largo (3 min) para llamadas que pueden cargar modelos grandes
+export const apiLong = axios.create({
+  baseURL: API_URL,
+  timeout: 180_000,
+});
+
 // Adjunta automáticamente la API key en cada request si existe
-if (API_KEY) {
-  api.interceptors.request.use((config) => {
+function attachApiKey(client: typeof api) {
+  if (!API_KEY) return;
+  client.interceptors.request.use((config) => {
     config.headers = config.headers || {};
     (config.headers as any)['x-api-key'] = API_KEY;
     return config;
   });
 }
+attachApiKey(api);
+attachApiKey(apiLong);
 
 export type HealthResponse = {
   status: 'ok' | 'degraded';
@@ -127,7 +136,7 @@ export const apiClient = {
       .post(`/chats/${encodeURIComponent(chatId)}/reset`)
       .then((r) => r.data),
   sendMessage: (chatId: string, text: string) =>
-    api.post('/chats/send', { chatId, text }).then((r) => r.data),
+    apiLong.post('/chats/send', { chatId, text }).then((r) => r.data),
 
   listLogs: (params?: { limit?: number; level?: string; source?: string }) =>
     api.get<Log[]>('/logs', { params }).then((r) => r.data),
@@ -143,7 +152,7 @@ export const apiClient = {
   saveOllamaSettings: (data: { baseUrl?: string; activeModel?: string; fallbackUrls?: string[] }) =>
     api.put<OllamaSettings>('/settings/ollama', data).then((r) => r.data),
   testOllama: (baseUrl: string) =>
-    api
+    apiLong
       .post<OllamaTestResult>('/settings/ollama/test', { baseUrl })
       .then((r) => r.data),
 
@@ -199,7 +208,7 @@ export const apiClient = {
       .post<DiagnosticResult>('/diagnostics/whatsapp/test-message', { chatId })
       .then((r) => r.data),
   testOllamaWhatsapp: (chatId?: string, prompt?: string) =>
-    api
+    apiLong
       .post<DiagnosticResult>('/diagnostics/ollama-whatsapp/test-message', {
         chatId,
         prompt,

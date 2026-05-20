@@ -56,7 +56,10 @@ export function ConnectionsView() {
   const testOllamaWa = useMutation({
     mutationFn: () => apiClient.testOllamaWhatsapp(chatId || undefined),
     onMutate: () =>
-      toast.loading('Consultando Ollama y enviando WhatsApp…', { id: 'owa' }),
+      toast.loading(
+        'Consultando Ollama… (la primera vez puede tardar 1-2 min si el modelo es grande)',
+        { id: 'owa' },
+      ),
     onSuccess: (r) => {
       if (r.ok) {
         toast.success('Ollama respondió y el mensaje fue enviado por WhatsApp.', { id: 'owa' });
@@ -73,8 +76,16 @@ export function ConnectionsView() {
         toast.error(r.error || 'Error desconocido', { id: 'owa' });
       }
     },
-    onError: (e: any) =>
-      toast.error(e?.response?.data?.message || e.message, { id: 'owa' }),
+    onError: (e: any) => {
+      if (e?.code === 'ECONNABORTED' || e?.message?.includes('timeout')) {
+        toast.error(
+          'Timeout. El modelo está tardando en cargar. Espera 1-2 min y vuelve a probar.',
+          { id: 'owa' },
+        );
+      } else {
+        toast.error(e?.response?.data?.message || e.message, { id: 'owa' });
+      }
+    },
   });
 
   const validChatId = /^\d{6,18}@c\.us$/.test(chatId);
