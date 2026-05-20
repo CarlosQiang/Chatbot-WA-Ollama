@@ -146,10 +146,98 @@ export class ReminderService {
     }).format(date);
   }
 
+  /**
+   * Convierte expresiones de hora en lenguaje natural a formato HH:MM:
+   *   "nueve" -> "09:00"
+   *   "nueve y media" -> "09:30"
+   *   "siete y cuarto de la tarde" -> "19:15"
+   *   "diez de la noche" -> "22:00"
+   *   "mediodia" -> "12:00"
+   *   "medianoche" -> "00:00"
+   *   "a las 9" -> "a las 09:00"
+   *   "a las 21" -> "a las 21:00"
+   */
+  private normalizeTimeExpressions(s: string): string {
+    const numWord: Record<string, number> = {
+      una: 1, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6,
+      siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12,
+      trece: 13, catorce: 14, quince: 15, dieciseis: 16, 'dieciséis': 16,
+      diecisiete: 17, dieciocho: 18, diecinueve: 19, veinte: 20,
+      veintiuna: 21, veintiuno: 21, veintidos: 22, 'veintidós': 22,
+      veintitres: 23, 'veintitrés': 23, veinticuatro: 24,
+    };
+    const minWord: Record<string, number> = {
+      media: 30, cuarto: 15,
+      // "menos cuarto" se trata aparte
+    };
+
+    let out = s;
+
+    // mediodia / medianoche
+    out = out.replace(/\bmediod[ií]a\b/gi, '12:00');
+    out = out.replace(/\bmedianoche\b/gi, '00:00');
+
+    // Patron 1: "a las <NUM> y <MIN> (de la <franja>)?"
+    // Ej: "a las nueve y media de la tarde" -> "a las 21:30"
+    const re1 = /\b(?:a\s+las?\s+)?(\w+)(?:\s+y\s+(\w+))?(?:\s+de\s+la\s+(ma[ñn]ana|tarde|noche|madrugada))?\b/gi;
+    out = out.replace(re1, (match, hWord, mWord, franja, offset, fullStr) => {
+      const h = numWord[hWord?.toLowerCase()];
+      if (h === undefined || h < 0 || h > 24) return match;
+      // No tocar si es una palabra suelta en medio (debe ir precedida de "a las" o ser inicio)
+      const before = (fullStr as string).slice(Math.max(0, offset - 8), offset).toLowerCase();
+      if (!/a\s+las?\s+$/.test(before) && !/^a\s+las?\s+/i.test(match)) return match;
+
+      let hour = h;
+      let min = 0;
+      if (mWord) {
+        const m = minWord[mWord.toLowerCase()];
+        if (m !== undefined) min = m;
+        else {
+          const mNum = numWord[mWord.toLowerCase()];
+          if (mNum !== undefined && mNum < 60) min = mNum;
+          else return match;
+        }
+      }
+      if (franja) {
+        const f = franja.toLowerCase();
+        if ((f === 'tarde' || f === 'noche') && hour >= 1 && hour <= 11) hour += 12;
+        if (f === 'madrugada' && hour === 12) hour = 0;
+        if (f === 'mañana' || f === 'manana') {
+          if (hour === 12) hour = 0;
+        }
+      } else if (hour > 23) {
+        return match;
+      }
+      const hh = String(hour % 24).padStart(2, '0');
+      const mm = String(min).padStart(2, '0');
+      return `a las ${hh}:${mm}`;
+    });
+
+    // Patron 2: "a las N" o "a las N de la tarde/noche/manana" donde N es numero
+    out = out.replace(
+      /\ba\s+las?\s+(\d{1,2})(?::(\d{2}))?(?:\s+de\s+la\s+(ma[ñn]ana|tarde|noche|madrugada))?\b/gi,
+      (_m, hStr, mStr, franja) => {
+        let hour = parseInt(hStr, 10);
+        let min = mStr ? parseInt(mStr, 10) : 0;
+        if (isNaN(hour) || hour > 24) return _m;
+        if (franja) {
+          const f = franja.toLowerCase();
+          if ((f === 'tarde' || f === 'noche') && hour >= 1 && hour <= 11) hour += 12;
+          if (f === 'madrugada' && hour === 12) hour = 0;
+        }
+        const hh = String(hour % 24).padStart(2, '0');
+        const mm = String(min).padStart(2, '0');
+        return `a las ${hh}:${mm}`;
+      },
+    );
+
+    return out;
+  }
+
   async parseAndCreate(input: string, ctx: CreateContext) {
     if (!input || !input.trim()) throw new BadRequestException('Texto vacio');
     const tz = await this.settings.getReminderTz();
-    let raw = input.trim();
+    let raw = this.normalizeTimeExpressions(input.trim());
 
     let target: 'telegram' | 'whatsapp' = ctx.defaultTarget || 'telegram';
     if (/^wa\s+/i.test(raw)) {
