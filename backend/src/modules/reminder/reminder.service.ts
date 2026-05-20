@@ -499,7 +499,3 @@ export class ReminderService {
     }
   }
 }
-ordatorio ${r.id.slice(0, 6)} fallo: ${e.message}`);
-    }
-  }
-}
