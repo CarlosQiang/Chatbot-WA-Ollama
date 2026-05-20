@@ -11,6 +11,7 @@ import { ChatService } from '../chat/chat.service';
 import { SystemService } from '../system/system.service';
 import { LogsService } from '../logs/logs.service';
 import { ReminderService } from '../reminder/reminder.service';
+import { NotesService } from '../notes/notes.service';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -71,6 +72,7 @@ export class CommandService {
     private readonly system: SystemService,
     private readonly logs: LogsService,
     private readonly reminder: ReminderService,
+    private readonly notes: NotesService,
   ) {}
 
   isCommand(text: string) {
@@ -318,6 +320,72 @@ export class CommandService {
         }
         const r = await this.reminder.deleteByShortId(arg);
         await reply(r ? `Borrado \`${arg}\`` : 'No encontrado.');
+        return true;
+      }
+
+      // ─── Notas ────────────────────────────────────────────────
+      case '/nota': {
+        if (!arg) {
+          await reply('Uso: `/nota <texto>` — guarda una nota');
+          return true;
+        }
+        const n = await this.notes.create({
+          text: arg,
+          source: 'whatsapp',
+          sourceId: chatId,
+          createdBy: `wa:${chatId}`,
+        });
+        await reply(`Nota guardada: \`${n.id.slice(0, 6)}\``);
+        return true;
+      }
+
+      case '/notas': {
+        const list = await this.notes.list({ limit: 20 });
+        if (!list.length) {
+          await reply('No hay notas guardadas.');
+          return true;
+        }
+        const txt = list
+          .slice(0, 15)
+          .map((n) => {
+            const preview = n.text.slice(0, 80);
+            return `\`${n.id.slice(0, 6)}\` · ${preview}${n.text.length > 80 ? '...' : ''}`;
+          })
+          .join('\n');
+        await reply(`*Notas* (${list.length})\n${txt}\n\nUsa \`/nota <texto>\` para crear, \`/borrarnota <id>\` para borrar, \`/organiza <texto|id>\` para organizar.`);
+        return true;
+      }
+
+      case '/borrarnota': {
+        if (!arg) {
+          await reply('Uso: `/borrarnota <id>`');
+          return true;
+        }
+        const n = await this.notes.deleteByShortId(arg);
+        await reply(n ? `Nota borrada \`${arg}\`` : 'Nota no encontrada.');
+        return true;
+      }
+
+      case '/organiza': {
+        if (!arg) {
+          await reply('Uso: `/organiza <texto>` o `/organiza <id_nota>`');
+          return true;
+        }
+        try {
+          // Si arg parece un id corto (6 chars alfanumericos sin espacios), buscar nota
+          if (/^[a-z0-9]{6,}$/.test(arg) && !arg.includes(' ')) {
+            const n = await this.notes.findByShortId(arg);
+            if (n) {
+              const organized = await this.notes.organize({ id: n.id, text: n.text });
+              await reply(`*Versión organizada:*\n\n${organized}`);
+              return true;
+            }
+          }
+          const organized = await this.notes.organize(arg);
+          await reply(`*Versión organizada:*\n\n${organized}`);
+        } catch (e: any) {
+          await reply(`Error: ${e.message}`);
+        }
         return true;
       }
 

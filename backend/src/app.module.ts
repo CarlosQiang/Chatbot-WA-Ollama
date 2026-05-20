@@ -23,6 +23,8 @@ import { IngestModule } from './modules/ingest/ingest.module';
 import { ReminderModule } from './modules/reminder/reminder.module';
 import { DevToolsModule } from './modules/devtools/devtools.module';
 import { TelegramModule } from './modules/telegram/telegram.module';
+import { NotesModule } from './modules/notes/notes.module';
+import { IntentModule } from './modules/intent/intent.module';
 
 @Module({
   imports: [
@@ -45,6 +47,8 @@ import { TelegramModule } from './modules/telegram/telegram.module';
     HealthModule,
     DiagnosticsModule,
     ReminderModule,
+    NotesModule,
+    IntentModule,
     DevToolsModule,
     TelegramModule,
   ],

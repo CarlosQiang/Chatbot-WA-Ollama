@@ -186,6 +186,14 @@ export const apiClient = {
   deleteReminder: (id: string) =>
     api.delete(`/reminders/${id}`).then((r) => r.data),
 
+  // ─── Notes ─────────────────────────────────────────────────
+  listNotes: () => api.get<any[]>('/notes').then((r) => r.data),
+  createNote: (data: { text: string; title?: string; tags?: string[] }) =>
+    api.post('/notes', data).then((r) => r.data),
+  organizeNote: (data: { text?: string; id?: string }) =>
+    apiLong.post<{ organized: string }>('/notes/organize', data).then((r) => r.data),
+  deleteNote: (id: string) => api.delete(`/notes/${id}`).then((r) => r.data),
+
   // ─── Auto-Reply IA ─────────────────────────────────────────
   getAutoReply: () =>
     api.get<{ enabled: boolean; chatId: string }>('/settings/auto-reply').then((r) => r.data),

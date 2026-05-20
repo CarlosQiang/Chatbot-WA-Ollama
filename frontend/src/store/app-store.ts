@@ -9,6 +9,7 @@ type View =
   | 'connections'
   | 'telegram'
   | 'reminders'
+  | 'notes'
   | 'autoreply'
   | 'logs'
   | 'settings';

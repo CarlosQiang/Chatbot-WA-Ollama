@@ -10,8 +10,10 @@ import {
 } from '../settings/settings.service';
 import { LogsService } from '../logs/logs.service';
 import { ReminderService } from '../reminder/reminder.service';
+import { NotesService } from '../notes/notes.service';
 import { DevToolsService } from '../devtools/devtools.service';
 import { SystemService } from '../system/system.service';
+import { IntentService } from '../intent/intent.service';
 import { isValidChatId } from '../../common/validators';
 
 type TgUpdate = {
@@ -89,6 +91,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     private readonly reminder: ReminderService,
     private readonly devtools: DevToolsService,
     private readonly system: SystemService,
+    private readonly intent: IntentService,
+    private readonly notes: NotesService,
   ) {
     this.intervalMs = parseInt(process.env.TELEGRAM_POLL_INTERVAL_MS || '2000', 10);
   }
@@ -563,12 +567,88 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         );
       }
 
+      // ─── Notas ─────────────────────────────────────────
+      case '/nota': {
+        if (!args) return this.sendMessage(chatId, 'Uso: `/nota <texto>`');
+        const n = await this.notes.create({
+          text: args,
+          source: 'telegram',
+          sourceId: String(chatId),
+          createdBy: `tg:${userId}`,
+        });
+        return this.sendMessage(chatId, `Nota guardada: \`${n.id.slice(0, 6)}\``);
+      }
+      case '/notas': {
+        const list = await this.notes.list({ limit: 20 });
+        if (!list.length) return this.sendMessage(chatId, 'No hay notas guardadas.');
+        const txt = list
+          .slice(0, 15)
+          .map((n) => {
+            const preview = n.text.slice(0, 80);
+            return `\`${n.id.slice(0, 6)}\` · ${preview}${n.text.length > 80 ? '...' : ''}`;
+          })
+          .join('\n');
+        return this.sendMessage(chatId, `*Notas* (${list.length})\n${txt}`);
+      }
+      case '/borrarnota': {
+        if (!args) return this.sendMessage(chatId, 'Uso: `/borrarnota <id>`');
+        const n = await this.notes.deleteByShortId(args);
+        return this.sendMessage(chatId, n ? `Nota borrada \`${args}\`` : 'No encontrada.');
+      }
+      case '/organiza': {
+        if (!args) return this.sendMessage(chatId, 'Uso: `/organiza <texto>` o `/organiza <id_nota>`');
+        try {
+          let organized: string;
+          if (/^[a-z0-9]{6,}$/.test(args) && !args.includes(' ')) {
+            const n = await this.notes.findByShortId(args);
+            if (n) organized = await this.notes.organize({ id: n.id, text: n.text });
+            else organized = await this.notes.organize(args);
+          } else {
+            organized = await this.notes.organize(args);
+          }
+          await this.sendMessage(chatId, `*Versión organizada:*\n\n${organized}`);
+          // Bridge a WhatsApp si esta activo
+          const bridge = await this.settings.getTelegramBridgeWa();
+          if (bridge) {
+            const target = await this.settings.getTelegramBridgeChatId();
+            if (target) {
+              try { await this.openwa.sendText(target, organized); } catch {}
+            }
+          }
+          return null;
+        } catch (e: any) {
+          return this.sendMessage(chatId, `Error: ${e.message}`);
+        }
+      }
+
       default:
         return this.sendMessage(chatId, 'Comando desconocido. Usa /ayuda');
     }
   }
 
   private async replyWithOllama(chatId: number, text: string) {
+    // Detección de intención (recordatorio/nota/organizar)
+    const intentResult = await this.intent.detect({
+      text,
+      source: 'telegram',
+      sourceId: String(chatId),
+      createdBy: `tg:${chatId}`,
+    });
+    if (intentResult.intent !== 'chat') {
+      await this.sendMessage(chatId, intentResult.reply);
+      // Si es organizar y el bridge está activo, también enviar a WhatsApp
+      if (intentResult.intent === 'organize') {
+        const bridge = await this.settings.getTelegramBridgeWa();
+        if (bridge) {
+          const target = await this.settings.getTelegramBridgeChatId();
+          if (target) {
+            try { await this.openwa.sendText(target, intentResult.reply); } catch {}
+          }
+        }
+      }
+      return;
+    }
+
     const model = await this.settings.getActiveModel();
     const sys = await this.settings.getSystemPrompt();
     const bridgeWa = await this.settings.getTelegramBridgeWa();

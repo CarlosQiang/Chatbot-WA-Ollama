@@ -12,6 +12,7 @@ import {
   Send,
   Bell,
   Sparkles,
+  StickyNote,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -22,6 +23,7 @@ const items = [
   { key: 'commands', label: 'Comandos', icon: Terminal },
   { key: 'telegram', label: 'Telegram', icon: Send },
   { key: 'reminders', label: 'Recordatorios', icon: Bell },
+  { key: 'notes', label: 'Notas', icon: StickyNote },
   { key: 'autoreply', label: 'Auto-IA', icon: Sparkles },
   { key: 'models', label: 'Modelos', icon: Cpu },
   { key: 'connections', label: 'Conexiones', icon: Plug },

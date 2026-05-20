@@ -87,3 +87,20 @@ model Reminder {
   @@index([active, fireAt])
   @@index([active, cronExpression])
 }
+
+model Note {
+  id         String   @id @default(cuid())
+  text       String   @db.Text // texto original
+  organized  String?  @db.Text // versión organizada por IA (opcional)
+  title      String?
+  tags       String[] @default([])
+  source     String   // 'whatsapp' | 'telegram' | 'dashboard'
+  sourceId   String?  // chatId origen
+  createdBy  String?
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([active, createdAt])
+  @@index([source, sourceId])
+}

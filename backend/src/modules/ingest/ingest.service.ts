@@ -4,6 +4,7 @@ import { CommandService } from '../command/command.service';
 import { OpenWaService } from '../openwa/openwa.service';
 import { LogsService } from '../logs/logs.service';
 import { SettingsService } from '../settings/settings.service';
+import { IntentService } from '../intent/intent.service';
 
 const BOT_SIGNATURE = '​‌​';
 const isBotSigned = (t: string) =>
@@ -34,6 +35,7 @@ export class IngestService {
     private readonly openwa: OpenWaService,
     private readonly logs: LogsService,
     private readonly settings: SettingsService,
+    private readonly intent: IntentService,
   ) {}
 
   extract(payload: any) {
@@ -164,6 +166,25 @@ export class IngestService {
       if (isCmd) {
         await this.command.handle(chatId, text, { isAdmin });
         return { ok: true, handled: 'command' };
+      }
+
+      // Detección de intención en lenguaje natural (recordatorios, notas, organizar)
+      const intentResult = await this.intent.detect({
+        text,
+        source: 'whatsapp',
+        sourceId: chatId,
+        createdBy: `wa:${chatId}`,
+      });
+      if (intentResult.intent !== 'chat') {
+        await this.chat.saveMessage({
+          chatId,
+          direction: 'out',
+          role: 'assistant',
+          body: intentResult.reply,
+          meta: { intent: intentResult.intent },
+        });
+        await this.openwa.sendText(chatId, intentResult.reply);
+        return { ok: true, handled: 'chat' };
       }
 
       await this.chat.generateAndReply(chatId);
