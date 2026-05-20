@@ -42,7 +42,7 @@ export class OllamaService implements OnModuleDestroy {
     private readonly logs: LogsService,
     private readonly settings: SettingsService,
   ) {
-    this.timeoutMs = parseInt(process.env.OLLAMA_TIMEOUT_MS || '180000', 10);
+    this.timeoutMs = parseInt(process.env.OLLAMA_TIMEOUT_MS || '300000', 10);
   }
 
   onModuleDestroy() {
@@ -159,11 +159,14 @@ export class OllamaService implements OnModuleDestroy {
   }
 
   async chat(model: string, messages: ChatMessage[]): Promise<string> {
-    const primary = await this.getActiveBaseUrl();
+    // Usar SIEMPRE el primario configurado primero, no el cacheado.
+    // Esto evita que un cambio reciente de primario quede tapado por el cache.
+    const primary = await this.settings.getOllamaBaseUrl();
     const all = await this.settings.getOllamaFallbackUrls();
     const candidates = [primary, ...all.filter((u) => u !== primary)];
 
-    let lastErr: any = null;
+    const failures: Array<{ url: string; reason: string }> = [];
+
     for (const baseUrl of candidates) {
       const t0 = Date.now();
       try {
@@ -174,26 +177,52 @@ export class OllamaService implements OnModuleDestroy {
         });
         const text: string = data?.message?.content ?? data?.messages?.[0]?.content ?? '';
         this.recordLatency(Date.now() - t0);
-        if (baseUrl !== this.activeUrl) {
-          this.activeUrl = baseUrl;
-          this.activeUrlCheckedAt = Date.now();
-        }
+        this.activeUrl = baseUrl;
+        this.activeUrlCheckedAt = Date.now();
         return text.trim();
       } catch (err: any) {
         const msg = err?.response?.data?.error || err.message;
-        lastErr = err;
-        await this.logs.write('warn', 'ollama', `chat fallo en ${baseUrl} - ${model}: ${msg}`);
-        const transient =
+        const status = err?.response?.status;
+        failures.push({ url: baseUrl, reason: msg });
+        await this.logs.write(
+          'warn',
+          'ollama',
+          `chat fallo en ${baseUrl} - ${model}: ${msg}`,
+        );
+
+        // "model not found" (404) en un servidor: probar siguiente para ver
+        // si lo tiene en otro lado, pero recordar el error.
+        const isModelNotFound =
+          status === 404 || /not found|no such model/i.test(msg);
+
+        const isTransient =
           err?.code === 'ECONNREFUSED' ||
           err?.code === 'ETIMEDOUT' ||
           err?.code === 'ENOTFOUND' ||
           err?.code === 'ECONNABORTED' ||
-          err?.code === 'EAI_AGAIN';
-        if (!transient) break;
+          err?.code === 'EAI_AGAIN' ||
+          isModelNotFound;
+
+        if (!isTransient) break;
       }
     }
+
     this.recordError();
-    const msg = lastErr?.response?.data?.error || lastErr?.message || 'error desconocido';
+    // Si TODOS los servidores fallaron con "not found" → mensaje claro
+    const allNotFound =
+      failures.length > 0 &&
+      failures.every((f) => /not found|no such model/i.test(f.reason));
+    if (allNotFound) {
+      throw new Error(
+        `El modelo "${model}" no existe en ningun servidor Ollama configurado. ` +
+          `Hazlo: en la maquina del servidor primario ejecuta: ollama pull ${model}`,
+      );
+    }
+    // Si hay mezcla de errores, devolver el del primario (suele ser el mas relevante)
+    const primaryFail = failures.find((f) => f.url === primary);
+    const msg = primaryFail
+      ? `${primary}: ${primaryFail.reason}`
+      : failures[failures.length - 1]?.reason || 'error desconocido';
     throw new Error(msg);
   }
 
