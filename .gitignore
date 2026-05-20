@@ -41,3 +41,7 @@ Thumbs.db
 # Temp
 tmp/
 temp/
+
+# Verificacion local de tipos
+backend/tsconfig-check.json
+backend/.tsbuildinfo

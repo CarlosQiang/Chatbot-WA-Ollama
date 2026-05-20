@@ -93,11 +93,16 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     this.intervalMs = parseInt(process.env.TELEGRAM_POLL_INTERVAL_MS || '2000', 10);
   }
 
-  onModuleInit() {
-    const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+  async onModuleInit() {
+    await this.startFromConfig();
+  }
+
+  private async startFromConfig() {
+    const token = await this.settings.getTelegramBotToken();
     const enabledEnv = (process.env.TELEGRAM_ENABLED ?? 'true').toLowerCase() !== 'false';
     if (!token || !enabledEnv) {
-      this.logger.log('Telegram desactivado');
+      this.logger.log('Telegram desactivado (sin token o TELEGRAM_ENABLED=false)');
+      this.enabled = false;
       return;
     }
     this.enabled = true;
@@ -105,14 +110,57 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       baseURL: `https://api.telegram.org/bot${token}`,
       timeout: 35_000,
     });
-    const ids = (process.env.TELEGRAM_ALLOWED_USER_IDS || '')
-      .split(',')
-      .map((s) => parseInt(s.trim(), 10))
-      .filter((n) => !isNaN(n));
+    const ids = await this.settings.getTelegramAllowedUserIds();
     this.allowedUserIds = new Set(ids);
     this.logger.log(`Telegram iniciado · whitelist: ${ids.length ? ids.join(',') : 'ABIERTO'}`);
     this.logs.write('info', 'system', `Telegram iniciado (whitelist=${ids.length})`);
     this.startPolling();
+  }
+
+  async restartFromSettings() {
+    if (this.timer) { clearInterval(this.timer); this.timer = undefined; }
+    this.offset = 0;
+    this.running = false;
+    this.enabled = false;
+    await this.startFromConfig();
+  }
+
+  async getConfig() {
+    const token = await this.settings.getTelegramBotToken();
+    const ids = await this.settings.getTelegramAllowedUserIds();
+    return {
+      hasToken: !!token,
+      tokenMask: token ? `${token.slice(0, 6)}...${token.slice(-4)}` : '',
+      allowedUserIds: ids,
+      bridgeWa: await this.settings.getTelegramBridgeWa(),
+      bridgeChatId: await this.settings.getTelegramBridgeChatId(),
+    };
+  }
+
+  async setConfig(body: {
+    botToken?: string;
+    allowedUserIds?: string;
+    bridgeWa?: boolean;
+    bridgeChatId?: string;
+  }) {
+    let needsRestart = false;
+    if (body.botToken !== undefined) {
+      await this.settings.setTelegramBotToken(body.botToken, 'dashboard');
+      needsRestart = true;
+    }
+    if (body.allowedUserIds !== undefined) {
+      await this.settings.setTelegramAllowedUserIds(body.allowedUserIds, 'dashboard');
+      // recargar whitelist en runtime sin reiniciar polling
+      const ids = await this.settings.getTelegramAllowedUserIds();
+      this.allowedUserIds = new Set(ids);
+    }
+    if (body.bridgeWa !== undefined) {
+      await this.settings.setTelegramBridgeWa(!!body.bridgeWa, 'dashboard');
+    }
+    if (body.bridgeChatId !== undefined) {
+      await this.settings.setTelegramBridgeChatId(body.bridgeChatId, 'dashboard');
+    }
+    if (needsRestart) await this.restartFromSettings();
   }
 
   onModuleDestroy() {
@@ -523,12 +571,27 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   private async replyWithOllama(chatId: number, text: string) {
     const model = await this.settings.getActiveModel();
     const sys = await this.settings.getSystemPrompt();
+    const bridgeWa = await this.settings.getTelegramBridgeWa();
     try {
       const reply = await this.ollama.chat(model, [
         { role: 'system', content: sys },
         { role: 'user', content: text },
       ]);
-      await this.sendMessage(chatId, reply || '_(vacio)_');
+      const finalReply = reply || '_(vacio)_';
+      await this.sendMessage(chatId, finalReply);
+
+      // BRIDGE: si esta activado, reenviar al WhatsApp configurado
+      if (bridgeWa) {
+        const target = await this.settings.getTelegramBridgeChatId();
+        if (target) {
+          try {
+            await this.openwa.sendText(target, finalReply);
+            await this.sendMessage(chatId, `_(tambien enviado a ${target})_`, null);
+          } catch (e: any) {
+            await this.sendMessage(chatId, `Bridge WA fallo: ${e.message}`);
+          }
+        }
+      }
     } catch (e: any) {
       await this.sendMessage(chatId, `Error Ollama: ${e.message}`);
     }

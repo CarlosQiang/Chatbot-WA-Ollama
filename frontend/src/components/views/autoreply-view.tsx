@@ -69,10 +69,16 @@ export function AutoReplyView() {
         ) : (
           <div className="space-y-4">
             <div className="text-sm text-fg-muted leading-relaxed">
+              <div className="mb-2">
+                <strong className="text-fg">Caso de uso típico:</strong> "responder por mí a otra persona".
+                Otro contacto te escribe y el bot le contesta automáticamente con Ollama,
+                como si fueras tú. Ideal para cuando no puedes contestar pero quieres mantener una conversación viva.
+              </div>
               Cuando esté <strong className="text-fg">activo</strong>, el bot responderá
               <strong className="text-accent"> siempre con Ollama</strong> a cualquier mensaje que llegue
               del número indicado, ignorando la whitelist. Cuando esté{' '}
-              <strong className="text-fg">inactivo</strong>, ese número se comporta como cualquier otro.
+              <strong className="text-fg">inactivo</strong>, ese número se comporta como cualquier otro
+              (le aplica la whitelist normal).
             </div>
 
             {/* Toggle grande */}

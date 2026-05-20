@@ -13,6 +13,10 @@ export const SETTING_KEYS = {
   AUTO_REPLY_CHAT_ID: 'autoReplyChatId',
   BOT_MODE: 'bot_mode',
   REMINDER_TZ: 'reminderTz',
+  TG_BOT_TOKEN: 'tgBotToken',
+  TG_ALLOWED_USER_IDS: 'tgAllowedUserIds',
+  TG_BRIDGE_WA: 'tgBridgeWa',
+  TG_BRIDGE_CHAT_ID: 'tgBridgeChatId',
 } as const;
 
 export type BotMode = 'manual' | 'private' | 'ai' | 'silent' | 'maintenance';
@@ -215,4 +219,47 @@ export class SettingsService {
   async setReminderTz(tz: string, auditedBy?: string) {
     return this.set(SETTING_KEYS.REMINDER_TZ, tz, auditedBy);
   }
+
+  // ─── Telegram dinamico ─────────────────────────────────────
+  async getTelegramBotToken(): Promise<string> {
+    const saved = await this.get(SETTING_KEYS.TG_BOT_TOKEN);
+    return (saved || process.env.TELEGRAM_BOT_TOKEN || '').trim();
+  }
+
+  async setTelegramBotToken(token: string, auditedBy?: string) {
+    return this.set(SETTING_KEYS.TG_BOT_TOKEN, (token || '').trim(), auditedBy);
+  }
+
+  async getTelegramAllowedUserIds(): Promise<number[]> {
+    const saved = await this.get(SETTING_KEYS.TG_ALLOWED_USER_IDS);
+    const raw = saved ?? process.env.TELEGRAM_ALLOWED_USER_IDS ?? '';
+    return raw
+      .split(',')
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => !isNaN(n));
+  }
+
+  async setTelegramAllowedUserIds(ids: string, auditedBy?: string) {
+    return this.set(SETTING_KEYS.TG_ALLOWED_USER_IDS, (ids || '').trim(), auditedBy);
+  }
+
+  async getTelegramBridgeWa(): Promise<boolean> {
+    const v = await this.get(SETTING_KEYS.TG_BRIDGE_WA);
+    return v === 'true';
+  }
+
+  async setTelegramBridgeWa(enabled: boolean, auditedBy?: string) {
+    return this.set(SETTING_KEYS.TG_BRIDGE_WA, enabled ? 'true' : 'false', auditedBy);
+  }
+
+  async getTelegramBridgeChatId(): Promise<string> {
+    const v = await this.get(SETTING_KEYS.TG_BRIDGE_CHAT_ID);
+    if (v) return v;
+    return await this.getTestChatId();
+  }
+
+  async setTelegramBridgeChatId(chatId: string, auditedBy?: string) {
+    return this.set(SETTING_KEYS.TG_BRIDGE_CHAT_ID, chatId, auditedBy);
+  }
+
 }

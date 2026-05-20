@@ -122,8 +122,25 @@ export const apiClient = {
   // ─── Telegram ──────────────────────────────────────────────
   telegramStatus: () =>
     api
-      .get<{ enabled: boolean; bot: any; error?: string }>('/telegram/status')
+      .get<{ enabled: boolean; bot: any; error?: string; config?: any }>('/telegram/status')
       .then((r) => r.data),
+  telegramConfig: () =>
+    api
+      .get<{
+        hasToken: boolean;
+        tokenMask: string;
+        allowedUserIds: number[];
+        bridgeWa: boolean;
+        bridgeChatId: string;
+      }>('/telegram/config')
+      .then((r) => r.data),
+  saveTelegramConfig: (data: {
+    botToken?: string;
+    allowedUserIds?: string;
+    bridgeWa?: boolean;
+    bridgeChatId?: string;
+  }) => api.put('/telegram/config', data).then((r) => r.data),
+  restartTelegram: () => api.post('/telegram/restart').then((r) => r.data),
 
   // ─── Reminders ─────────────────────────────────────────────
   listReminders: () => api.get<any[]>('/reminders').then((r) => r.data),
