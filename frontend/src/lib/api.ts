@@ -97,8 +97,25 @@ export const apiClient = {
 
   listModels: () =>
     api.get<{ active: string; models: Model[] }>('/models').then((r) => r.data),
-  selectModel: (model: string) =>
-    api.post<{ active: string }>('/models/select', { model }).then((r) => r.data),
+  listAllModels: () =>
+    api
+      .get<{
+        active: string;
+        primary: string;
+        servers: Array<{
+          url: string;
+          isPrimary: boolean;
+          ok: boolean;
+          latencyMs: number | null;
+          models: string[];
+          error?: string;
+        }>;
+      }>('/models/all')
+      .then((r) => r.data),
+  selectModel: (model: string, url?: string) =>
+    api
+      .post<{ active: string; primary: string }>('/models/select', { model, url })
+      .then((r) => r.data),
 
   listChats: () => api.get<Chat[]>('/chats').then((r) => r.data),
   listMessages: (chatId: string) =>

@@ -1,26 +1,26 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/loading';
-import { formatBytes, cn } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
-import { Check, Plus, Trash2, Server, Zap, RefreshCw } from 'lucide-react';
+import { Check, Plus, Trash2, Server, Zap, RefreshCw, Cpu } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function ModelsView() {
   const qc = useQueryClient();
 
-  // Modelos
-  const models = useQuery({
-    queryKey: ['models'],
-    queryFn: apiClient.listModels,
-    refetchInterval: 15_000,
+  // Modelos agrupados por servidor
+  const all = useQuery({
+    queryKey: ['modelsAll'],
+    queryFn: apiClient.listAllModels,
+    refetchInterval: 20_000,
   });
 
-  // Servidores Ollama
+  // Servidores Ollama (para mostrar config raw, latencias, etc.)
   const ollama = useQuery({
     queryKey: ['ollamaSettings'],
     queryFn: apiClient.getOllamaSettings,
@@ -29,15 +29,20 @@ export function ModelsView() {
 
   const [newUrl, setNewUrl] = useState('');
   const [testing, setTesting] = useState<string | null>(null);
-  const [testResult, setTestResult] = useState<Record<string, { ok: boolean; latency?: number | null; models?: string[]; error?: string }>>({});
+  const [testResult, setTestResult] = useState<
+    Record<string, { ok: boolean; latency?: number | null; models?: string[]; error?: string }>
+  >({});
 
   const selectModel = useMutation({
-    mutationFn: (m: string) => apiClient.selectModel(m),
+    mutationFn: ({ model, url }: { model: string; url?: string }) =>
+      apiClient.selectModel(model, url),
     onSuccess: (r) => {
-      toast.success(`Modelo activo: ${r.active}`);
+      toast.success(`Modelo activo: ${r.active} en ${r.primary}`);
+      qc.invalidateQueries({ queryKey: ['modelsAll'] });
       qc.invalidateQueries({ queryKey: ['models'] });
+      qc.invalidateQueries({ queryKey: ['ollamaSettings'] });
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => toast.error(e?.response?.data?.message || e.message),
   });
 
   const saveOllama = useMutation({
@@ -46,7 +51,7 @@ export function ModelsView() {
     onSuccess: () => {
       toast.success('Servidores Ollama actualizados');
       qc.invalidateQueries({ queryKey: ['ollamaSettings'] });
-      qc.invalidateQueries({ queryKey: ['models'] });
+      qc.invalidateQueries({ queryKey: ['modelsAll'] });
     },
     onError: (e: any) => toast.error(e?.response?.data?.message || e.message),
   });
@@ -60,7 +65,8 @@ export function ModelsView() {
         ...prev,
         [url]: { ok: r.ok, latency: r.latencyMs, models: r.models, error: r.error },
       }));
-      if (r.ok) toast.success(`${url} OK · ${r.latencyMs}ms · ${r.models?.length || 0} modelos`);
+      if (r.ok)
+        toast.success(`${url} OK · ${r.latencyMs}ms · ${r.models?.length || 0} modelos`);
       else toast.error(`${url}: ${r.error}`);
     } finally {
       setTesting(null);
@@ -93,6 +99,9 @@ export function ModelsView() {
     ? [ollama.data.baseUrl, ...((ollama.data as any).fallbackUrls || [])].filter(Boolean)
     : [];
 
+  const totalModels =
+    all.data?.servers.reduce((sum, s) => sum + (s.ok ? s.models.length : 0), 0) || 0;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -113,7 +122,7 @@ export function ModelsView() {
             size="sm"
             onClick={() => {
               qc.invalidateQueries({ queryKey: ['ollamaSettings'] });
-              qc.invalidateQueries({ queryKey: ['models'] });
+              qc.invalidateQueries({ queryKey: ['modelsAll'] });
             }}
           >
             <RefreshCw size={12} /> Refrescar
@@ -122,7 +131,7 @@ export function ModelsView() {
       >
         <div className="text-xs text-fg-muted mb-3 leading-relaxed">
           El primero (<strong>primario</strong>) es el que se usa por defecto. Si cae, el backend
-          intenta automaticamente los <strong>fallback</strong> en orden. Click en una fila para probarla.
+          intenta automaticamente los <strong>fallback</strong> en orden.
         </div>
 
         {ollama.isLoading ? (
@@ -132,7 +141,8 @@ export function ModelsView() {
             {allUrls.map((url, idx) => {
               const isPrimary = idx === 0;
               const result = testResult[url];
-              const isActive = ollama.data?.status === 'online' && url === ollama.data?.baseUrl;
+              const isActive =
+                ollama.data?.status === 'online' && url === ollama.data?.baseUrl;
               return (
                 <div
                   key={url}
@@ -144,7 +154,9 @@ export function ModelsView() {
                   <span
                     className={cn(
                       'text-[10px] uppercase font-mono px-2 py-0.5 rounded',
-                      isPrimary ? 'bg-accent/20 text-accent' : 'bg-bg-elevated text-fg-subtle',
+                      isPrimary
+                        ? 'bg-accent/20 text-accent'
+                        : 'bg-bg-elevated text-fg-subtle',
                     )}
                   >
                     {isPrimary ? 'primario' : `fallback ${idx}`}
@@ -157,12 +169,12 @@ export function ModelsView() {
                         result.ok ? 'text-accent' : 'text-danger',
                       )}
                     >
-                      {result.ok ? `${result.latency}ms · ${result.models?.length || 0} mod` : '❌'}
+                      {result.ok
+                        ? `${result.latency}ms · ${result.models?.length || 0} mod`
+                        : 'KO'}
                     </span>
                   )}
-                  {isActive && (
-                    <span className="text-[10px] text-accent">en uso</span>
-                  )}
+                  {isActive && <span className="text-[10px] text-accent">en uso</span>}
                   <Button
                     size="sm"
                     variant="ghost"
@@ -234,62 +246,130 @@ export function ModelsView() {
             </div>
           )}
           <div className="text-[11px] text-fg-subtle">
-            Si tu Ollama remoto da "connection refused", asegurate de que escucha en <code>0.0.0.0</code>:
-            <code className="block mt-1 p-1 bg-bg-subtle/60 rounded">OLLAMA_HOST=0.0.0.0:11434 ollama serve</code>
+            Si tu Ollama remoto da "connection refused", asegurate de que escucha en{' '}
+            <code>0.0.0.0</code>:
+            <code className="block mt-1 p-1 bg-bg-subtle/60 rounded">
+              OLLAMA_HOST=0.0.0.0:11434 ollama serve
+            </code>
           </div>
         </div>
       </Card>
 
-      {/* Modelos del primario activo */}
+      {/* Modelos disponibles - agrupados por servidor */}
       <Card
-        title="Modelos disponibles"
+        title={
+          <span className="flex items-center gap-2">
+            <Cpu size={13} /> Modelos disponibles · todos los servidores
+          </span>
+        }
         action={
-          models.data?.active && (
+          all.data?.active && (
             <span className="text-xs text-fg-muted">
-              activo: <span className="font-mono text-accent">{models.data.active}</span>
+              activo: <span className="font-mono text-accent">{all.data.active}</span> ·{' '}
+              <span className="font-mono">{totalModels}</span> totales
             </span>
           )
         }
       >
-        {models.isLoading ? (
-          <div className="space-y-2">
-            <Skeleton className="h-12" />
-            <Skeleton className="h-12" />
-          </div>
-        ) : !models.data?.models?.length ? (
-          <div className="text-fg-muted text-sm py-6 text-center">
-            No hay modelos en el servidor Ollama activo. Instala uno con{' '}
-            <code className="font-mono text-fg">ollama pull llama3.2:1b</code> en la maquina del Ollama primario.
+        {all.isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-16" />
+            <Skeleton className="h-16" />
           </div>
         ) : (
-          <div className="divide-y divide-border">
-            {models.data.models.map((m) => {
-              const active = m.name === models.data!.active;
-              return (
-                <div key={m.name} className="flex items-center justify-between py-3">
-                  <div>
-                    <div className="font-mono text-sm flex items-center gap-2">
-                      {m.name}
-                      {active && (
-                        <span className="text-[10px] uppercase tracking-wider text-accent">activo</span>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-fg-subtle">
-                      {formatBytes(m.size)}{' '}
-                      {m.modified_at && `· ${new Date(m.modified_at).toLocaleDateString()}`}
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant={active ? 'ghost' : 'outline'}
-                    disabled={active || selectModel.isPending}
-                    onClick={() => selectModel.mutate(m.name)}
+          <div className="space-y-4">
+            {all.data?.servers.map((srv) => (
+              <div key={srv.url} className="space-y-2">
+                {/* Cabecera de servidor */}
+                <div
+                  className={cn(
+                    'flex items-center gap-2 px-3 py-2 rounded border',
+                    srv.isPrimary
+                      ? 'border-accent/40 bg-accent/5'
+                      : 'border-border bg-bg-subtle/40',
+                  )}
+                >
+                  <Server size={11} className="text-fg-subtle" />
+                  <span className="font-mono text-xs flex-1">{srv.url}</span>
+                  {srv.isPrimary && (
+                    <span className="text-[10px] uppercase font-mono bg-accent/20 text-accent px-2 py-0.5 rounded">
+                      primario
+                    </span>
+                  )}
+                  <span
+                    className={cn(
+                      'text-[10px] font-mono',
+                      srv.ok ? 'text-accent' : 'text-danger',
+                    )}
                   >
-                    {active ? <Check size={12} /> : 'usar'}
-                  </Button>
+                    {srv.ok
+                      ? `OK ${srv.latencyMs}ms · ${srv.models.length} mod`
+                      : `KO ${srv.error?.slice(0, 30) || ''}`}
+                  </span>
                 </div>
-              );
-            })}
+
+                {/* Lista de modelos del servidor */}
+                {srv.ok && srv.models.length > 0 ? (
+                  <div className="pl-6 divide-y divide-border">
+                    {srv.models.map((m) => {
+                      const isActive = m === all.data?.active && srv.isPrimary;
+                      const isActiveModelOnOther =
+                        m === all.data?.active && !srv.isPrimary;
+                      return (
+                        <div key={m} className="flex items-center justify-between py-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-sm">{m}</span>
+                            {isActive && (
+                              <span className="text-[10px] uppercase tracking-wider text-accent">
+                                activo
+                              </span>
+                            )}
+                            {isActiveModelOnOther && (
+                              <span className="text-[10px] text-fg-subtle">
+                                activo en otro servidor
+                              </span>
+                            )}
+                          </div>
+                          <Button
+                            size="sm"
+                            variant={isActive ? 'ghost' : 'outline'}
+                            disabled={isActive || selectModel.isPending}
+                            onClick={() => selectModel.mutate({ model: m, url: srv.url })}
+                            title={
+                              srv.isPrimary
+                                ? 'Activar modelo'
+                                : `Cambiar primario a ${srv.url} y activar ${m}`
+                            }
+                          >
+                            {isActive ? (
+                              <Check size={12} />
+                            ) : srv.isPrimary ? (
+                              'usar'
+                            ) : (
+                              'usar (cambia primario)'
+                            )}
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : srv.ok ? (
+                  <div className="pl-6 text-[11px] text-fg-subtle py-2">
+                    Sin modelos. Instala uno con{' '}
+                    <code className="font-mono">ollama pull llama3.2:1b</code> en esta maquina.
+                  </div>
+                ) : (
+                  <div className="pl-6 text-[11px] text-danger py-2">
+                    No accesible: {srv.error}
+                  </div>
+                )}
+              </div>
+            ))}
+            {!all.data?.servers.length && (
+              <div className="text-fg-muted text-sm py-6 text-center">
+                No hay servidores Ollama configurados.
+              </div>
+            )}
           </div>
         )}
       </Card>
