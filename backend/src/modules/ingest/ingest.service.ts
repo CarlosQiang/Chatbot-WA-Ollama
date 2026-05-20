@@ -77,8 +77,18 @@ export class IngestService {
       }
       if (chatId.endsWith('@g.us')) return { ok: true, ignored: 'group' };
 
-      if (direction === 'outgoing') return { ok: true, ignored: 'self-echo' };
+      // Detectar SELF-CHAT: usuario escribiendose a su propio numero (chatId == botPhone).
+      // En self-chat, OpenWA marca TODOS los mensajes como outgoing/fromMe porque
+      // el origen y destino es el mismo numero. Solo descartamos los que tienen
+      // la firma invisible del bot (las respuestas del bot a su propio chat).
+      const botPhone = (process.env.OPENWA_SESSION_PHONE || '').replace(/\D/g, '');
+      const isSelfChat = !!botPhone && chatId === `${botPhone}@c.us`;
+
       if (isBotSigned(text)) return { ok: true, ignored: 'self-echo' };
+
+      if (!isSelfChat && direction === 'outgoing') {
+        return { ok: true, ignored: 'self-echo' };
+      }
 
       if (id && (await this.openwa.isOwnMessage(id))) {
         return { ok: true, ignored: 'self-echo' };
