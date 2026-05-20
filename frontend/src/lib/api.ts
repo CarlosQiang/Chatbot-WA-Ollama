@@ -3,10 +3,21 @@ import axios from 'axios';
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3411';
 
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
+
 export const api = axios.create({
   baseURL: API_URL,
   timeout: 30_000,
 });
+
+// Adjunta automáticamente la API key en cada request si existe
+if (API_KEY) {
+  api.interceptors.request.use((config) => {
+    config.headers = config.headers || {};
+    (config.headers as any)['x-api-key'] = API_KEY;
+    return config;
+  });
+}
 
 export type HealthResponse = {
   status: 'ok' | 'degraded';
