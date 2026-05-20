@@ -25,7 +25,8 @@ export class OpenWaController {
   @Post('webhooks/register')
   registerWebhook(@Body() body: { url?: string; events?: string[] }) {
     const url = body?.url || process.env.WEBHOOK_URL;
-    return this.openwa.registerWebhook(url, body?.events || ['message']);
+    // Por defecto solo "message.received" para no spamear con acks
+    return this.openwa.registerWebhook(url, body?.events || ['message.received']);
   }
 
   @Post('session/start')

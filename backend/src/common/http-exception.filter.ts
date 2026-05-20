@@ -32,9 +32,18 @@ export class AllExceptionsFilter implements ExceptionFilter {
     } else if (exception instanceof Error) {
       message = exception.message;
       error = exception.name;
+      // Errores de body-parser (POST malformado, body vacio) → 400 sin stack feo
+      if (
+        (exception as any).type === 'entity.parse.failed' ||
+        message?.includes('Unexpected end of JSON') ||
+        message?.includes('JSON in body')
+      ) {
+        status = HttpStatus.BAD_REQUEST;
+        message = 'Body inválido o vacío';
+      }
     }
 
-    // Solo logueamos 5xx para no inundar logs con 404
+    // Solo logueamos 5xx para no inundar logs con 404 ni 400 de body malformado
     if (status >= 500) {
       this.logger.error(
         `${req.method} ${req.url} → ${status} ${JSON.stringify(message)}`,

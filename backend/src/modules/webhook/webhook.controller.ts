@@ -49,6 +49,11 @@ export class WebhookController {
   }
 
   private async guardAndIngest(body: any, provided: string | undefined, req: any) {
+    // Aceptar pings vacios sin error feo
+    if (!body || (typeof body === 'object' && Object.keys(body).length === 0)) {
+      return { ok: true, ignored: 'empty' };
+    }
+
     const required = process.env.WEBHOOK_SECRET;
     const ip: string =
       req.ip ||

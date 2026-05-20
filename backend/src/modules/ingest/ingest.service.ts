@@ -60,8 +60,19 @@ export class IngestService {
     try {
       const { id, chatId, text, fromMe, direction, displayName } = this.extract(payload);
 
+      // Detectar eventos de "envio confirmado" sin contenido y silenciarlos
+      const eventType: string = payload?.event || payload?.type || '';
+      const isAckEvent =
+        eventType === 'message.sent' ||
+        eventType === 'message.ack' ||
+        direction === 'outgoing';
+
       if (!chatId || !text) {
-        await this.logs.write('warn', 'webhook', 'Payload sin chatId/text', { payload });
+        if (isAckEvent) {
+          // No es ruido, es un ack — ignorar silenciosamente
+          return { ok: true, ignored: 'no_text' };
+        }
+        await this.logs.write('debug', 'webhook', 'Payload sin chatId/text', { payload });
         return { ok: true, ignored: 'no_text' };
       }
       if (chatId.endsWith('@g.us')) return { ok: true, ignored: 'group' };
