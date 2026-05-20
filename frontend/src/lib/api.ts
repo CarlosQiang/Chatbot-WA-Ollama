@@ -122,8 +122,8 @@ export const apiClient = {
 
   // ─── Ollama dinámico ───────────────────────────────────────
   getOllamaSettings: () =>
-    api.get<OllamaSettings>('/settings/ollama').then((r) => r.data),
-  saveOllamaSettings: (data: { baseUrl?: string; activeModel?: string }) =>
+    api.get<OllamaSettings & { fallbackUrls?: string[] }>('/settings/ollama').then((r) => r.data),
+  saveOllamaSettings: (data: { baseUrl?: string; activeModel?: string; fallbackUrls?: string[] }) =>
     api.put<OllamaSettings>('/settings/ollama', data).then((r) => r.data),
   testOllama: (baseUrl: string) =>
     api
