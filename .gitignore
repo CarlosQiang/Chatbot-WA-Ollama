@@ -15,8 +15,8 @@ out/
 .env.*.local
 !.env.example
 
-# Logs
-logs/
+# Logs (solo en raiz, no excluye src/modules/logs/)
+/logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
