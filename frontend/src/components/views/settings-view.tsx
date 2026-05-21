@@ -10,7 +10,22 @@ import { toast } from 'sonner';
 import { RefreshCw, Save, Plug, Phone, Shield, Plus, X } from 'lucide-react';
 
 const isValidUrl = (s: string) => /^https?:\/\/\S+/i.test(s);
-const isValidChatId = (s: string) => /^\d{6,18}@c\.us$/.test(s);
+
+/**
+ * Normalización flexible — espejo de `normalizeChatId` del backend.
+ * Acepta cualquier formato razonable, devuelve `34XXXXXXXXX@c.us` o null.
+ */
+function normalizeChatId(input: string): string | null {
+  if (typeof input !== 'string') return null;
+  const raw = input.trim();
+  if (!raw) return null;
+  const atIdx = raw.indexOf('@');
+  const localPart = atIdx >= 0 ? raw.slice(0, atIdx) : raw;
+  const digits = localPart.replace(/\D/g, '');
+  if (!/^\d{6,18}$/.test(digits)) return null;
+  return `${digits}@c.us`;
+}
+const isValidChatId = (s: string) => !!normalizeChatId(s);
 
 export function SettingsView() {
   const qc = useQueryClient();
@@ -115,16 +130,16 @@ export function SettingsView() {
   });
 
   const addAllowed = () => {
-    const id = newAllowed.trim();
-    if (!isValidChatId(id)) {
-      toast.error('Formato inválido. Usa 34670209033@c.us');
+    const normalized = normalizeChatId(newAllowed);
+    if (!normalized) {
+      toast.error('Número inválido. Acepta 612345678, +34612345678, 34 612 345 678...');
       return;
     }
-    if (allowedList.includes(id)) {
+    if (allowedList.includes(normalized)) {
       toast.error('Ya está en la lista');
       return;
     }
-    setAllowedList([...allowedList, id]);
+    setAllowedList([...allowedList, normalized]);
     setNewAllowed('');
   };
 
@@ -165,6 +180,9 @@ export function SettingsView() {
             </div>
           </div>
 
+          {/* Personal WhatsApp — destino para flujos Telegram → IA → WA */}
+          <PersonalWaSection />
+
           {/* Test chatId */}
           <div>
             <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block">
@@ -173,13 +191,21 @@ export function SettingsView() {
             <div className="flex gap-2">
               <input
                 value={testChatId}
-                onChange={(e) => setTestChatId(e.target.value.trim())}
-                placeholder="34670209033@c.us"
+                onChange={(e) => setTestChatId(e.target.value)}
+                placeholder="612345678 · +34612345678 · 34670209033@c.us"
                 className="flex-1 bg-bg-subtle/60 border border-border rounded-md px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-border-strong"
               />
               <Button
                 variant="primary"
-                onClick={() => saveBasic.mutate({ testWhatsappChatId: testChatId })}
+                onClick={() => {
+                  const n = normalizeChatId(testChatId);
+                  if (!n) {
+                    toast.error('Número inválido');
+                    return;
+                  }
+                  setTestChatId(n);
+                  saveBasic.mutate({ testWhatsappChatId: n });
+                }}
                 disabled={saveBasic.isPending || !isValidChatId(testChatId)}
               >
                 <Save size={12} /> Guardar
@@ -229,23 +255,28 @@ export function SettingsView() {
             <div className="flex gap-2">
               <input
                 value={newAllowed}
-                onChange={(e) => setNewAllowed(e.target.value.trim())}
+                onChange={(e) => setNewAllowed(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && addAllowed()}
-                placeholder={selfChatId || '34670209033@c.us'}
+                placeholder="612345678 · +34612345678 · 34 612 345 678"
                 className="flex-1 bg-bg-subtle/60 border border-border rounded-md px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-border-strong"
               />
               <Button variant="outline" onClick={addAllowed} disabled={!newAllowedValid}>
                 <Plus size={12} /> Añadir
               </Button>
             </div>
+            {newAllowed && newAllowedValid && normalizeChatId(newAllowed) && (
+              <div className="text-[11px] text-fg-subtle mt-1">
+                Se guardará como: <code className="text-fg-muted">{normalizeChatId(newAllowed)}</code>
+              </div>
+            )}
             {newAllowed && !newAllowedValid && (
               <div className="text-[11px] text-danger mt-1">
-                Formato inválido. Usa 34XXXXXXXXX@c.us
+                Número inválido. Necesita entre 6 y 18 dígitos.
               </div>
             )}
             <div className="text-[11px] text-fg-subtle mt-2">
-              Si añades números a la lista, el bot <strong>solo responderá a esos chats</strong> y
-              ignorará a cualquier otro. Útil para que el bot solo te responda a ti.
+              Pega los números en cualquier formato (con/sin <code>+</code>, espacios, etc.).
+              Si la lista tiene contenido, el bot <strong>solo responderá a esos chats</strong>.
               Recuerda incluirte a ti mismo (<code className="text-fg-muted">{selfChatId || '34XXXXXXXXX@c.us'}</code>).
             </div>
             <div className="mt-3 flex justify-end gap-2">
@@ -417,6 +448,84 @@ export function SettingsView() {
 {JSON.stringify(webhooks.data || [], null, 2)}
         </pre>
       </Card>
+    </div>
+  );
+}
+
+/**
+ * Personal WhatsApp — destino por defecto cuando un recordatorio o nota
+ * se crea desde Telegram o desde el dashboard. Si está vacío, fallback
+ * automático al self-chat del bot (OPENWA_SESSION_PHONE@c.us).
+ */
+function PersonalWaSection() {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ['personalWa'],
+    queryFn: apiClient.getPersonalWa,
+  });
+  const [draft, setDraft] = useState('');
+
+  useEffect(() => {
+    if (data?.chatId) setDraft(data.chatId);
+  }, [data?.chatId]);
+
+  const save = useMutation({
+    mutationFn: (chatId: string) => apiClient.savePersonalWa(chatId),
+    onSuccess: (r) => {
+      toast.success(r.chatId ? `Guardado: ${r.chatId}` : 'WhatsApp personal limpiado');
+      qc.invalidateQueries({ queryKey: ['personalWa'] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || e.message),
+  });
+
+  const normalized = normalizeChatId(draft);
+  const valid = draft.trim() === '' || !!normalized;
+
+  return (
+    <div>
+      <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block">
+        Mi WhatsApp personal (destino flujos Telegram)
+      </label>
+      <div className="flex gap-2">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={data?.botPhone ? `${data.botPhone}@c.us (por defecto: self-chat)` : '612345678'}
+          className="flex-1 bg-bg-subtle/60 border border-border rounded-md px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-border-strong"
+        />
+        <Button
+          variant="primary"
+          onClick={() => {
+            const v = draft.trim() === '' ? '' : (normalized || '');
+            if (!valid) {
+              toast.error('Número inválido');
+              return;
+            }
+            save.mutate(v);
+          }}
+          disabled={save.isPending || !valid}
+        >
+          <Save size={12} /> Guardar
+        </Button>
+      </div>
+      {isLoading ? (
+        <Skeleton className="h-4 w-32 mt-2" />
+      ) : (
+        <div className="text-[11px] text-fg-subtle mt-1">
+          {data?.chatId
+            ? <>Actualmente: <code className="text-fg-muted">{data.chatId}</code></>
+            : <>Sin configurar → recordatorios y notas creados desde Telegram se enviarán al self-chat del bot.</>}
+        </div>
+      )}
+      {draft && normalized && draft !== normalized && (
+        <div className="text-[11px] text-fg-subtle mt-1">
+          Se guardará como: <code className="text-fg-muted">{normalized}</code>
+        </div>
+      )}
+      <div className="text-[11px] text-fg-subtle mt-1.5">
+        Cuando crees un recordatorio o nota desde Telegram o desde el dashboard, el bot lo enviará
+        a este número de WhatsApp. Acepta cualquier formato.
+      </div>
     </div>
   );
 }

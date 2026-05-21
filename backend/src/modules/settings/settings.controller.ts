@@ -18,6 +18,8 @@ import {
   hostFromUrl,
   isLoopbackHost,
   isValidOllamaUrl,
+  normalizeChatId,
+  normalizeChatIdList,
 } from '../../common/validators';
 
 @ApiTags('settings')
@@ -74,18 +76,30 @@ export class SettingsController {
       adminChatIds: await this.settings.getAdminChatIds(),
       openToAll: this.settings.isOpenToAll(),
       botPhone: process.env.OPENWA_SESSION_PHONE || '',
+      personalWhatsappChatId: await this.settings.getPersonalWhatsappChatId(),
     };
   }
 
   @Put('allowed-chats')
-  async putAllowed(@Body() body: { chatIds?: string[] }) {
-    const list = body?.chatIds || [];
-    for (const id of list) {
-      if (!/^\d{6,18}@c\.us$/.test(id)) {
-        throw new BadRequestException(`chatId invalido: "${id}". Usa formato 34670209033@c.us`);
+  async putAllowed(@Body() body: { chatIds?: string[] | string }) {
+    // Validación informativa: rechazamos solo si al normalizar no queda nada
+    // utilizable de una entrada explícita (evita silencios sorpresivos).
+    if (body?.chatIds !== undefined && body.chatIds !== null) {
+      const raw = Array.isArray(body.chatIds)
+        ? body.chatIds
+        : String(body.chatIds).split(/[,;\n]/);
+      const invalid: string[] = [];
+      for (const id of raw) {
+        const trimmed = String(id || '').trim();
+        if (trimmed && !normalizeChatId(trimmed)) invalid.push(trimmed);
+      }
+      if (invalid.length) {
+        throw new BadRequestException(
+          `chatId invalido(s): ${invalid.join(', ')}. Acepta 612345678, +34612345678 o 34612345678@c.us`,
+        );
       }
     }
-    await this.settings.setAllowedChatIds(list, 'dashboard');
+    await this.settings.setAllowedChatIds(body?.chatIds || [], 'dashboard');
     return { allowedChatIds: await this.settings.getAllowedChatIds() };
   }
 
@@ -95,15 +109,46 @@ export class SettingsController {
   }
 
   @Put('admins')
-  async putAdmins(@Body() body: { chatIds?: string[] }) {
-    const list = body?.chatIds || [];
-    for (const id of list) {
-      if (!/^\d{6,18}@c\.us$/.test(id)) {
-        throw new BadRequestException(`chatId invalido: "${id}". Usa formato 34670209033@c.us`);
+  async putAdmins(@Body() body: { chatIds?: string[] | string }) {
+    if (body?.chatIds !== undefined && body.chatIds !== null) {
+      const raw = Array.isArray(body.chatIds)
+        ? body.chatIds
+        : String(body.chatIds).split(/[,;\n]/);
+      const invalid: string[] = [];
+      for (const id of raw) {
+        const trimmed = String(id || '').trim();
+        if (trimmed && !normalizeChatId(trimmed)) invalid.push(trimmed);
+      }
+      if (invalid.length) {
+        throw new BadRequestException(
+          `chatId invalido(s): ${invalid.join(', ')}. Acepta 612345678, +34612345678 o 34612345678@c.us`,
+        );
       }
     }
-    await this.settings.setAdminChatIds(list, 'dashboard');
+    await this.settings.setAdminChatIds(body?.chatIds || [], 'dashboard');
     return { adminChatIds: await this.settings.getAdminChatIds() };
+  }
+
+  @Get('personal-whatsapp')
+  async getPersonalWa() {
+    return {
+      chatId: await this.settings.getPersonalWhatsappChatId(),
+      botPhone: process.env.OPENWA_SESSION_PHONE || '',
+    };
+  }
+
+  @Put('personal-whatsapp')
+  async putPersonalWa(@Body() body: { chatId?: string }) {
+    const raw = (body?.chatId || '').trim();
+    if (raw && !normalizeChatId(raw)) {
+      throw new BadRequestException(
+        'chatId invalido. Acepta 612345678, +34612345678 o 34612345678@c.us',
+      );
+    }
+    await this.settings.setPersonalWhatsappChatId(raw, 'dashboard');
+    return {
+      chatId: await this.settings.getPersonalWhatsappChatId(),
+    };
   }
 
   @Put()
@@ -174,11 +219,54 @@ export class SettingsController {
   }
 
   @Put('auto-reply')
-  async putAutoReply(@Body() body: { enabled?: boolean; chatId?: string }) {
-    if (body?.chatId && !/^\d{6,18}@c\.us$/.test(body.chatId)) {
-      throw new BadRequestException('chatId invalido. Formato: 34670209033@c.us');
+  async putAutoReply(
+    @Body()
+    body: {
+      enabled?: boolean;
+      /** Lista (preferido). Acepta array o CSV. */
+      chatIds?: string[] | string;
+      /** Legacy single chatId. Si llega solo, se trata como lista de 1. */
+      chatId?: string;
+    },
+  ) {
+    let normalized: string[] | undefined;
+
+    if (body?.chatIds !== undefined && body.chatIds !== null) {
+      const raw = Array.isArray(body.chatIds)
+        ? body.chatIds
+        : String(body.chatIds).split(/[,;\n]/);
+      const invalid: string[] = [];
+      const valid: string[] = [];
+      for (const id of raw) {
+        const trimmed = String(id || '').trim();
+        if (!trimmed) continue;
+        const n = normalizeChatId(trimmed);
+        if (n) valid.push(n);
+        else invalid.push(trimmed);
+      }
+      if (invalid.length) {
+        throw new BadRequestException(
+          `chatId invalido(s): ${invalid.join(', ')}. Acepta 612345678, +34612345678 o 34612345678@c.us`,
+        );
+      }
+      normalized = valid;
+    } else if (body?.chatId !== undefined) {
+      // Compat: vino el campo viejo single.
+      const trimmed = (body.chatId || '').trim();
+      if (trimmed === '') {
+        normalized = [];
+      } else {
+        const n = normalizeChatId(trimmed);
+        if (!n) {
+          throw new BadRequestException(
+            'chatId invalido. Acepta 612345678, +34612345678 o 34612345678@c.us',
+          );
+        }
+        normalized = [n];
+      }
     }
-    return this.settings.setAutoReply(!!body?.enabled, body?.chatId, 'dashboard');
+
+    return this.settings.setAutoReply(!!body?.enabled, normalized, 'dashboard');
   }
 
   @Post('ollama/test')

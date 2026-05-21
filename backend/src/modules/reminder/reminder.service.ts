@@ -4,11 +4,16 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { OpenWaService } from '../openwa/openwa.service';
 import { SettingsService } from '../settings/settings.service';
 import { LogsService } from '../logs/logs.service';
+import { ChatService } from '../chat/chat.service';
+import { normalizeChatId } from '../../common/validators';
 
 export type CreateContext = {
   createdBy?: string;
+  /** ChatId Telegram desde el que se solicitó (para confirmación). */
   telegramChatId?: string;
+  /** ChatId WhatsApp explícito al que entregar (override). */
   whatsappChatId?: string;
+  /** @deprecated mantenido por compat. Todos los recordatorios van por WhatsApp. */
   defaultTarget?: 'telegram' | 'whatsapp';
 };
 
@@ -48,6 +53,11 @@ const UNITS: Record<string, number> = {
 @Injectable()
 export class ReminderService {
   private readonly logger = new Logger(ReminderService.name);
+  /**
+   * Sender opcional para confirmación de creación en Telegram (mensaje
+   * "Recordatorio guardado..."). NO se usa para disparar el recordatorio
+   * en sí — todos los recordatorios se entregan por WhatsApp.
+   */
   private telegramSender: ((chatId: string | number, text: string) => Promise<any>) | null = null;
 
   constructor(
@@ -55,10 +65,26 @@ export class ReminderService {
     private readonly openwa: OpenWaService,
     private readonly settings: SettingsService,
     private readonly logs: LogsService,
+    private readonly chat: ChatService,
   ) {}
 
   setTelegramSender(fn: (chatId: string | number, text: string) => Promise<any>) {
     this.telegramSender = fn;
+  }
+
+  /**
+   * Devuelve el chatId WhatsApp donde se debe entregar el recordatorio.
+   * Prioridad: override explícito → personalWhatsappChatId → self-chat del bot.
+   */
+  private async resolveWaTarget(override?: string): Promise<string> {
+    if (override) {
+      const n = normalizeChatId(override);
+      if (n) return n;
+    }
+    const personal = await this.settings.getPersonalWhatsappChatId();
+    if (personal) return personal;
+    // Último recurso: testChatId (legacy fallback).
+    return this.settings.getTestChatId();
   }
 
   async list() {
@@ -239,19 +265,15 @@ export class ReminderService {
     const tz = await this.settings.getReminderTz();
     let raw = this.normalizeTimeExpressions(input.trim());
 
-    let target: 'telegram' | 'whatsapp' = ctx.defaultTarget || 'telegram';
-    if (/^wa\s+/i.test(raw)) {
-      target = 'whatsapp';
-      raw = raw.replace(/^wa\s+/i, '').trim();
-    } else if (/^(tg|telegram)\s+/i.test(raw)) {
-      target = 'telegram';
-      raw = raw.replace(/^(tg|telegram)\s+/i, '').trim();
+    // Prefijos legacy: los aceptamos pero los desechamos. TODO recordatorio
+    // se entrega por WhatsApp. Si quieres mandar a otro WhatsApp, configura
+    // `personalWhatsappChatId` o pasa `whatsappChatId` en el ctx.
+    if (/^(wa|tg|telegram)\s+/i.test(raw)) {
+      raw = raw.replace(/^(wa|tg|telegram)\s+/i, '').trim();
     }
 
-    const targetChatId =
-      target === 'whatsapp'
-        ? (ctx.whatsappChatId || (await this.settings.getTestChatId()))
-        : (ctx.telegramChatId || 'dashboard');
+    const target: 'whatsapp' = 'whatsapp';
+    const targetChatId = await this.resolveWaTarget(ctx.whatsappChatId);
 
     const parsed: { text: string; fireAt?: Date; cronExpression?: string } | null =
       this.tryRecurring(raw) ||
@@ -286,11 +308,27 @@ export class ReminderService {
       : `Recurrente · ${this.cronHuman(reminder.cronExpression)}`;
     const hhmm = reminder.fireAt ? this.partsInTz(new Date(reminder.fireAt), tz) : null;
     return (
-      `Recordatorio guardado:\n` +
+      `✅ *Recordatorio guardado*\n` +
       `_"${reminder.text}"_\n` +
-      `Fecha: ${when}` +
-      (hhmm ? `\nHora: ${String(hhmm.hour).padStart(2, '0')}:${String(hhmm.minute).padStart(2, '0')}` : '') +
+      `📅 ${when}` +
+      (hhmm ? `\n⏰ ${String(hhmm.hour).padStart(2, '0')}:${String(hhmm.minute).padStart(2, '0')}` : '') +
+      `\n📲 Se enviará a: \`${reminder.targetChatId}\`` +
       `\nID: \`${reminder.id.slice(0, 6)}\``
+    );
+  }
+
+  /**
+   * Formato del mensaje que llega a WhatsApp cuando salta el recordatorio.
+   * Visualmente limpio: emoji, título en negrita, hora local, separadores.
+   */
+  private formatWhatsappBody(reminder: any, tz: string): string {
+    const when = reminder.fireAt
+      ? this.formatHuman(new Date(reminder.fireAt), tz)
+      : `(recurrente · ${this.cronHuman(reminder.cronExpression)})`;
+    return (
+      `⏰ *Recordatorio*\n` +
+      `${reminder.text}\n` +
+      `\n_${when}_`
     );
   }
 
@@ -571,19 +609,64 @@ export class ReminderService {
 
   private async fire(r: any) {
     const tz = await this.settings.getReminderTz();
-    const msg = `Recordatorio:\n${r.text}`;
+    const body = this.formatWhatsappBody(r, tz);
+
+    // Resolución defensiva del destino: si el recordatorio se creó cuando
+    // aún no había personalWhatsappChatId, o el targetChatId quedó vacío
+    // por alguna razón, fallback al WhatsApp configurado AHORA.
+    let dest = r.targetChatId;
+    const n = dest ? normalizeChatId(dest) : null;
+    if (!n) dest = await this.resolveWaTarget();
+    else dest = n;
+
+    if (!dest) {
+      await this.logs.write(
+        'error',
+        'system',
+        `Recordatorio ${r.id.slice(0, 6)} sin destino WhatsApp. Configura "Mi WhatsApp personal".`,
+      );
+      // Lo marcamos como disparado para no entrar en bucle infinito.
+      await this.prisma.reminder.update({
+        where: { id: r.id },
+        data: { lastFiredAt: new Date(), active: r.cronExpression ? true : false },
+      });
+      return;
+    }
+
     try {
-      if (r.target === 'whatsapp') {
-        await this.openwa.sendText(r.targetChatId, msg);
-      } else if (this.telegramSender) {
-        await this.telegramSender(r.targetChatId, msg);
-      }
+      // Forzamos WhatsApp. El campo target=telegram (legacy) ya no se usa
+      // para enrutar — todos los recordatorios van a WhatsApp.
+      await this.openwa.sendText(dest, body);
+      // Registramos en el historial de chats del dashboard.
+      try {
+        await this.chat.recordOutgoing({
+          chatId: dest,
+          body,
+          meta: { kind: 'reminder', reminderId: r.id },
+        });
+      } catch {}
       const updateData: any = { lastFiredAt: new Date() };
       if (!r.cronExpression) updateData.active = false;
       await this.prisma.reminder.update({ where: { id: r.id }, data: updateData });
-      await this.logs.write('info', 'system', `Recordatorio ${r.id.slice(0, 6)} disparado -> ${r.target} (${tz})`);
+      this.logger.log(
+        `[reminder] ${r.id.slice(0, 6)} disparado -> ${dest} (tz=${tz}, cron=${!!r.cronExpression})`,
+      );
+      await this.logs.write(
+        'info',
+        'system',
+        `Recordatorio ${r.id.slice(0, 6)} -> WhatsApp ${dest}`,
+      );
     } catch (e: any) {
-      await this.logs.write('error', 'system', `Recordatorio ${r.id.slice(0, 6)} fallo: ${e.message}`);
+      this.logger.error(`[reminder] ${r.id.slice(0, 6)} fallo: ${e.message}`);
+      await this.logs.write(
+        'error',
+        'system',
+        `Recordatorio ${r.id.slice(0, 6)} fallo enviando a ${dest}: ${e.message}`,
+      );
+      // No marcamos lastFiredAt para que el siguiente tick reintente.
+      // Para evitar reintento infinito en caso de error permanente, lo
+      // desactivamos si llevamos varios fallos seguidos: lo dejamos
+      // pasar al siguiente tick (a 1 min) — los logs harán visible el bucle.
     }
   }
 }

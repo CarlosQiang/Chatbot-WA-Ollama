@@ -180,7 +180,10 @@ export const apiClient = {
   restartTelegram: () => api.post('/telegram/restart').then((r) => r.data),
 
   // ─── Reminders ─────────────────────────────────────────────
-  listReminders: () => api.get<any[]>('/reminders').then((r) => r.data),
+  listReminders: () =>
+    api
+      .get<{ tz: string; list: any[] }>('/reminders')
+      .then((r) => r.data),
   createReminder: (input: string, telegramChatId?: string) =>
     api.post('/reminders', { input, telegramChatId }).then((r) => r.data),
   deleteReminder: (id: string) =>
@@ -196,18 +199,34 @@ export const apiClient = {
 
   // ─── Auto-Reply IA ─────────────────────────────────────────
   getAutoReply: () =>
-    api.get<{ enabled: boolean; chatId: string }>('/settings/auto-reply').then((r) => r.data),
-  saveAutoReply: (data: { enabled: boolean; chatId?: string }) =>
+    api
+      .get<{ enabled: boolean; chatIds: string[] }>('/settings/auto-reply')
+      .then((r) => r.data),
+  saveAutoReply: (data: { enabled: boolean; chatIds?: string[] }) =>
     api.put('/settings/auto-reply', data).then((r) => r.data),
 
   // ─── Whitelist chatIds ─────────────────────────────────────
   getAllowedChats: () =>
     api
-      .get<{ allowedChatIds: string[]; botPhone: string }>('/settings/allowed-chats')
+      .get<{
+        allowedChatIds: string[];
+        botPhone: string;
+        personalWhatsappChatId?: string;
+      }>('/settings/allowed-chats')
       .then((r) => r.data),
   saveAllowedChats: (chatIds: string[]) =>
     api
       .put<{ allowedChatIds: string[] }>('/settings/allowed-chats', { chatIds })
+      .then((r) => r.data),
+
+  // ─── Personal WhatsApp (destino flujos Telegram) ───────────
+  getPersonalWa: () =>
+    api
+      .get<{ chatId: string; botPhone: string }>('/settings/personal-whatsapp')
+      .then((r) => r.data),
+  savePersonalWa: (chatId: string) =>
+    api
+      .put<{ chatId: string }>('/settings/personal-whatsapp', { chatId })
       .then((r) => r.data),
 
   // ─── Diagnostics ───────────────────────────────────────────

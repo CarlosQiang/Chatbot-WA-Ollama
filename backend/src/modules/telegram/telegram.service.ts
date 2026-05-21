@@ -14,7 +14,8 @@ import { NotesService } from '../notes/notes.service';
 import { DevToolsService } from '../devtools/devtools.service';
 import { SystemService } from '../system/system.service';
 import { IntentService } from '../intent/intent.service';
-import { isValidChatId } from '../../common/validators';
+import { ChatService } from '../chat/chat.service';
+import { normalizeChatId } from '../../common/validators';
 
 type TgUpdate = {
   update_id: number;
@@ -27,32 +28,34 @@ type TgUpdate = {
   };
 };
 
-const HELP = `*Local AI Hub Bot*
+const HELP = `*Local AI Hub Bot — Telegram = panel de control*
 
-*IA*
-\`<texto>\` chat libre con Ollama
-\`/ai <texto>\` explicito
-\`/codigo <lang> <desc>\` genera codigo
-\`/explica <texto>\` explica
-\`/sec <descripcion>\` analisis seguridad
-\`/regexgen <descripcion>\`
-\`/sqlgen <descripcion>\`
+Todo lo que generes (recordatorios, notas, respuestas IA largas) sale a tu *WhatsApp personal*. Configúralo en el dashboard → Ajustes → "Mi WhatsApp personal".
+
+*Chat IA*
+\`<texto corto>\` chat libre con Ollama (responde en Telegram)
+\`<texto largo (>220 chars o varias líneas)>\` se organiza con IA y se manda a tu WhatsApp
+\`/ai <texto>\` chat libre explícito
+\`/codigo <lang> <desc>\` · \`/explica <texto>\`
+\`/sec <desc>\` · \`/regexgen <desc>\` · \`/sqlgen <desc>\`
 \`/modelos\`  \`/modelo <n>\`  \`/estado\`  \`/latencia\`
 
-*WhatsApp*
-\`/wa <texto>\`
-\`/wa <34xxx@c.us> <texto>\`
-\`/aiwa <texto>\`
+*Notas — Telegram → IA → WhatsApp*
+\`/organiza <texto>\` lo organizo con IA y mando la nota a tu WhatsApp
+\`/notas\` lista las notas guardadas
+\`/borrarnota <id>\`
 
-*Recordatorios (lenguaje natural)*
+*Recordatorios (todos llegan a tu WhatsApp)*
 \`/recordar hoy a las 18:00 revisar Docker\`
 \`/recordar en 2 horas revisar logs\`
-\`/recordar en 3 dias llamar a Juan\`
 \`/recordar el viernes a las 21:00 hacer backup\`
-\`/recordar el 25 de mayo pagar el servidor\`
-\`/recordar cada lunes revisar Traefik\`
-\`/recordar wa <expr>\`
+\`/recordar cada lunes a las 08:00 sacar basura\`
 \`/recordatorios\`  \`/borrar <id>\`
+
+*Envíos manuales a WhatsApp*
+\`/wa <texto>\` envía a tu WhatsApp personal
+\`/wa <34xxx@c.us> <texto>\` envía a otro número
+\`/aiwa <texto>\` IA responde y envía a tu WhatsApp
 
 *Modo del bot WhatsApp*
 \`/modo\` muestra modo actual
@@ -60,7 +63,7 @@ const HELP = `*Local AI Hub Bot*
 \`/silencio\`  \`/resumir\`
 
 *Admin*
-\`/whitelist\` \`/whitelist add <chatId>\` \`/whitelist del <chatId>\`
+\`/whitelist\` \`/whitelist add <num>\` \`/whitelist del <num>\`
 \`/admins\`
 
 *DevTools*
@@ -93,6 +96,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     private readonly system: SystemService,
     private readonly intent: IntentService,
     private readonly notes: NotesService,
+    private readonly chat: ChatService,
   ) {
     this.intervalMs = parseInt(process.env.TELEGRAM_POLL_INTERVAL_MS || '2000', 10);
   }
@@ -324,29 +328,66 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         return this.replyWithOllamaPrompt(chatId, 'Genera SOLO la query SQL y 1 linea de explicacion.', args);
 
       case '/wa': {
-        if (!args) return this.sendMessage(chatId, 'Uso: `/wa <texto>` o `/wa 34xxxx@c.us <texto>`');
-        const m = args.match(/^(\d{6,18}@c\.us)\s+(.+)$/s);
-        const target = m ? m[1] : await this.settings.getTestChatId();
-        const body = m ? m[2] : args;
-        if (!isValidChatId(target)) return this.sendMessage(chatId, 'chatId invalido');
+        if (!args)
+          return this.sendMessage(
+            chatId,
+            'Uso: `/wa <texto>` (a tu WhatsApp personal) o `/wa 612345678 <texto>` (a otro número)',
+          );
+        // Intenta parsear "<numero> <texto>". Acepta cualquier formato.
+        const m = args.match(/^(\S+)\s+(.+)$/s);
+        let target: string;
+        let body: string;
+        if (m) {
+          const candidate = normalizeChatId(m[1]);
+          if (candidate) {
+            target = candidate;
+            body = m[2];
+          } else {
+            target = await this.settings.getPersonalWhatsappChatId();
+            body = args;
+          }
+        } else {
+          target = await this.settings.getPersonalWhatsappChatId();
+          body = args;
+        }
+        if (!target) {
+          return this.sendMessage(
+            chatId,
+            '⚠ No tienes configurado tu *WhatsApp personal*. Configúralo en el dashboard → Ajustes.',
+          );
+        }
         try {
           await this.openwa.sendText(target, body);
-          return this.sendMessage(chatId, `Enviado a ${target}`);
-        } catch (e: any) { return this.sendMessage(chatId, `Error: ${e.message}`); }
+          await this.chat
+            .recordOutgoing({ chatId: target, body, meta: { kind: 'tg-wa-manual' } })
+            .catch(() => null);
+          return this.sendMessage(chatId, `📲 Enviado a \`${target}\``);
+        } catch (e: any) {
+          return this.sendMessage(chatId, `Error: ${e.message}`);
+        }
       }
 
       case '/aiwa': {
         if (!args) return this.sendMessage(chatId, 'Uso: `/aiwa <texto>`');
         try {
+          const waTarget = await this.settings.getPersonalWhatsappChatId();
+          if (!waTarget) {
+            return this.sendMessage(
+              chatId,
+              '⚠ Configura tu *WhatsApp personal* en el dashboard antes de usar /aiwa.',
+            );
+          }
           const model = await this.settings.getActiveModel();
           const sys = await this.settings.getSystemPrompt();
           const reply = await this.ollama.chat(model, [
             { role: 'system', content: sys },
             { role: 'user', content: args },
           ]);
-          const waTarget = await this.settings.getTestChatId();
           await this.openwa.sendText(waTarget, reply);
-          return this.sendMessage(chatId, `Enviado a WhatsApp:\n\n${reply}`);
+          await this.chat
+            .recordOutgoing({ chatId: waTarget, body: reply, model, meta: { kind: 'tg-aiwa' } })
+            .catch(() => null);
+          return this.sendMessage(chatId, `📲 Enviado a WhatsApp \`${waTarget}\`:\n\n${reply}`);
         } catch (e: any) { return this.sendMessage(chatId, `Error: ${e.message}`); }
       }
 
@@ -355,7 +396,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           const r: any = await this.reminder.parseAndCreate(args, {
             createdBy: `tg:${userId}`,
             telegramChatId: String(chatId),
-            defaultTarget: 'telegram',
+            defaultTarget: 'whatsapp',
           });
           const tz = await this.settings.getReminderTz();
           return this.sendMessage(chatId, this.reminder.formatConfirmation(r, tz));
@@ -369,9 +410,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           const when = r.fireAt
             ? new Date(r.fireAt).toLocaleString('es-ES', { timeZone: tz })
             : `cron \`${r.cronExpression}\``;
-          return `\`${r.id.slice(0, 6)}\` · ${r.target} · ${when}\n  _${r.text}_`;
+          return `\`${r.id.slice(0, 6)}\` · 📲 ${r.targetChatId} · ${when}\n  _${r.text}_`;
         }).join('\n\n');
-        return this.sendMessage(chatId, `*Activos*\n\n${txt}`);
+        return this.sendMessage(chatId, `*Recordatorios activos* (WhatsApp)\n\n${txt}`);
       }
       case '/borrar': {
         if (!args) return this.sendMessage(chatId, 'Uso: `/borrar <id>`');
@@ -404,24 +445,33 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         return this.sendMessage(chatId, 'Modo `private` activado.');
 
       case '/whitelist': {
-        const [sub, target] = args.split(/\s+/);
+        const [sub, ...rest] = args.split(/\s+/);
+        const target = rest.join(' ').trim();
         if (sub === 'add' && target) {
-          if (!/^\d{6,18}@c\.us$/.test(target)) {
-            return this.sendMessage(chatId, 'chatId invalido. Formato: 34670209033@c.us');
+          const n = normalizeChatId(target);
+          if (!n) {
+            return this.sendMessage(
+              chatId,
+              'Número inválido. Acepta `612345678`, `+34612345678`, `34 612 345 678` o `34xxx@c.us`',
+            );
           }
-          await this.settings.addAllowed(target, `tg:${userId}`);
-          return this.sendMessage(chatId, `Anadido a whitelist: \`${target}\``);
+          await this.settings.addAllowed(n, `tg:${userId}`);
+          return this.sendMessage(chatId, `Añadido a whitelist: \`${n}\``);
         }
         if ((sub === 'del' || sub === 'rm') && target) {
-          await this.settings.removeAllowed(target, `tg:${userId}`);
-          return this.sendMessage(chatId, `Quitado: \`${target}\``);
+          const n = normalizeChatId(target);
+          if (!n) {
+            return this.sendMessage(chatId, 'Número inválido.');
+          }
+          await this.settings.removeAllowed(n, `tg:${userId}`);
+          return this.sendMessage(chatId, `Quitado: \`${n}\``);
         }
         const list = await this.settings.getAllowedChatIds();
         return this.sendMessage(
           chatId,
           `*Whitelist* (${list.length})\n` +
             (list.map((c) => `- \`${c}\``).join('\n') || '_(vacia)_') +
-            `\n\nUso:\n- \`/whitelist add 34xxxxx@c.us\`\n- \`/whitelist del 34xxxxx@c.us\``,
+            `\n\nUso:\n- \`/whitelist add 612345678\` (cualquier formato)\n- \`/whitelist del 612345678\``,
         );
       }
       case '/admins': {
@@ -595,27 +645,42 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         const n = await this.notes.deleteByShortId(args);
         return this.sendMessage(chatId, n ? `Nota borrada \`${args}\`` : 'No encontrada.');
       }
-      case '/organiza': {
-        if (!args) return this.sendMessage(chatId, 'Uso: `/organiza <texto>` o `/organiza <id_nota>`');
+      case '/organiza':
+      case '/nota_ia':
+      case '/organizar': {
+        if (!args)
+          return this.sendMessage(
+            chatId,
+            'Uso: `/organiza <texto largo>` — lo organizo con IA y lo mando a tu WhatsApp.',
+          );
         try {
-          let organized: string;
-          if (/^[a-z0-9]{6,}$/.test(args) && !args.includes(' ')) {
-            const n = await this.notes.findByShortId(args);
-            if (n) organized = await this.notes.organize({ id: n.id, text: n.text });
-            else organized = await this.notes.organize(args);
-          } else {
-            organized = await this.notes.organize(args);
+          const personal = await this.settings.getPersonalWhatsappChatId();
+          if (!personal) {
+            return this.sendMessage(
+              chatId,
+              '⚠ No tienes configurado tu *WhatsApp personal*.\n' +
+                'Ve a Ajustes → "Mi WhatsApp personal" y configura un número antes de usar /organiza.',
+            );
           }
-          await this.sendMessage(chatId, `*Versión organizada:*\n\n${organized}`);
-          // Bridge a WhatsApp si esta activo
-          const bridge = await this.settings.getTelegramBridgeWa();
-          if (bridge) {
-            const target = await this.settings.getTelegramBridgeChatId();
-            if (target) {
-              try { await this.openwa.sendText(target, organized); } catch {}
-            }
-          }
-          return null;
+          await this.sendMessage(
+            chatId,
+            '_Organizando con IA..._\n_(puede tardar unos segundos)_',
+            null,
+          );
+          const result = await this.notes.organizeAndSendToWhatsapp({
+            text: args,
+            source: 'telegram',
+            sourceId: String(chatId),
+            createdBy: `tg:${userId}`,
+            whatsappTarget: personal,
+          });
+          const status = result.delivered
+            ? `📲 Enviado a WhatsApp \`${result.sentTo}\``
+            : `⚠ No se pudo enviar a WhatsApp (revisa logs).`;
+          return this.sendMessage(
+            chatId,
+            `*Nota organizada:*\n\n${result.organized}\n\n${status}\n_ID:_ \`${result.noteId.slice(0, 6)}\``,
+          );
         } catch (e: any) {
           return this.sendMessage(chatId, `Error: ${e.message}`);
         }
@@ -636,22 +701,47 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     });
     if (intentResult.intent !== 'chat') {
       await this.sendMessage(chatId, intentResult.reply);
-      // Si es organizar y el bridge está activo, también enviar a WhatsApp
+      // Si el intent fue organizar, ya quedó como nota — también la
+      // enviamos al WhatsApp personal con formato bonito.
       if (intentResult.intent === 'organize') {
-        const bridge = await this.settings.getTelegramBridgeWa();
-        if (bridge) {
-          const target = await this.settings.getTelegramBridgeChatId();
-          if (target) {
-            try { await this.openwa.sendText(target, intentResult.reply); } catch {}
-          }
-        }
+        await this.maybeForwardOrganizedToWhatsapp(chatId, intentResult.reply);
       }
       return;
     }
 
+    // Heurística "mensaje largo de Telegram" → organizar + mandar a WhatsApp.
+    // Aplica si supera 220 caracteres O tiene 3+ saltos de línea (lluvia de
+    // ideas). Si Carlos solo quiere chatear, mensajes cortos siguen siendo chat
+    // normal con Ollama.
+    const looksLikeBrainDump =
+      text.length >= 220 || (text.match(/\n/g)?.length || 0) >= 3;
+    const personal = await this.settings.getPersonalWhatsappChatId();
+    if (looksLikeBrainDump && personal) {
+      try {
+        await this.sendMessage(chatId, '_Detectado mensaje largo → organizo con IA y mando a tu WhatsApp..._', null);
+        const r = await this.notes.organizeAndSendToWhatsapp({
+          text,
+          source: 'telegram',
+          sourceId: String(chatId),
+          createdBy: `tg:${chatId}`,
+          whatsappTarget: personal,
+        });
+        const status = r.delivered
+          ? `📲 Enviado a WhatsApp \`${r.sentTo}\``
+          : `⚠ No se pudo enviar a WhatsApp (revisa logs).`;
+        await this.sendMessage(
+          chatId,
+          `*Nota organizada:*\n\n${r.organized}\n\n${status}\n_ID:_ \`${r.noteId.slice(0, 6)}\``,
+        );
+        return;
+      } catch (e: any) {
+        // Si el organize falla, caemos a chat normal sin interrumpir.
+        await this.sendMessage(chatId, `_(no pude organizar: ${e.message}, sigo en chat normal)_`, null);
+      }
+    }
+
     const model = await this.settings.getActiveModel();
     const sys = await this.settings.getSystemPrompt();
-    const bridgeWa = await this.settings.getTelegramBridgeWa();
     try {
       const reply = await this.ollama.chat(model, [
         { role: 'system', content: sys },
@@ -659,21 +749,26 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       ]);
       const finalReply = reply || '_(vacio)_';
       await this.sendMessage(chatId, finalReply);
-
-      // BRIDGE: si esta activado, reenviar al WhatsApp configurado
-      if (bridgeWa) {
-        const target = await this.settings.getTelegramBridgeChatId();
-        if (target) {
-          try {
-            await this.openwa.sendText(target, finalReply);
-            await this.sendMessage(chatId, `_(tambien enviado a ${target})_`, null);
-          } catch (e: any) {
-            await this.sendMessage(chatId, `Bridge WA fallo: ${e.message}`);
-          }
-        }
-      }
     } catch (e: any) {
       await this.sendMessage(chatId, `Error Ollama: ${e.message}`);
+    }
+  }
+
+  /**
+   * Reenvía contenido ya organizado al WhatsApp personal del usuario.
+   * Silencioso si no hay personalWhatsappChatId configurado.
+   */
+  private async maybeForwardOrganizedToWhatsapp(tgChatId: number, content: string) {
+    const target = await this.settings.getPersonalWhatsappChatId();
+    if (!target) return;
+    try {
+      await this.openwa.sendText(target, content);
+      await this.chat
+        .recordOutgoing({ chatId: target, body: content, meta: { kind: 'tg-forward-organized' } })
+        .catch(() => null);
+      await this.sendMessage(tgChatId, `_(también enviado a tu WhatsApp \`${target}\`)_`, null);
+    } catch (e: any) {
+      this.logger.warn(`forward organized to wa fallo: ${e.message}`);
     }
   }
 

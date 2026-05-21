@@ -33,6 +33,32 @@ export class ChatService {
     });
   }
 
+  /**
+   * Registra un mensaje saliente en la conversación. Pensado para flujos
+   * que disparan envíos directos (Telegram → WhatsApp, recordatorios,
+   * notas organizadas) para que aparezcan en la vista Conversaciones
+   * del dashboard junto con el resto del historial.
+   *
+   * No envía el mensaje — eso lo hace `openwa.sendText`. Solo registra.
+   */
+  async recordOutgoing(params: {
+    chatId: string;
+    body: string;
+    model?: string;
+    meta?: any;
+  }) {
+    if (!params.chatId || !params.body) return null;
+    await this.ensureChat(params.chatId);
+    return this.saveMessage({
+      chatId: params.chatId,
+      direction: 'out',
+      role: 'assistant',
+      body: params.body,
+      model: params.model,
+      meta: params.meta,
+    });
+  }
+
   async saveMessage(params: {
     chatId: string;
     direction: 'in' | 'out';

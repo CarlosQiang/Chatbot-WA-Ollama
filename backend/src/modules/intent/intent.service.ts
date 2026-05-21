@@ -47,15 +47,20 @@ export class IntentService {
     if (reminderMatch) {
       const expr = reminderMatch[1].trim();
       try {
+        // Todos los recordatorios se entregan por WhatsApp. Si viene de
+        // WhatsApp, al mismo chat. Si viene de Telegram, al personalWhatsapp.
         const r: any = await this.reminder.parseAndCreate(expr, {
           createdBy: params.createdBy,
           whatsappChatId: params.source === 'whatsapp' ? params.sourceId : undefined,
           telegramChatId: params.source === 'telegram' ? params.sourceId : undefined,
-          defaultTarget: params.source === 'telegram' ? 'telegram' : 'whatsapp',
+          defaultTarget: 'whatsapp',
         });
+        const dest = r.targetChatId;
         return {
           intent: 'reminder',
-          reply: `OK, recordatorio creado:\n_"${r.text}"_\n${r._human || ''}\nID: \`${r.id.slice(0, 6)}\``,
+          reply:
+            `✅ Recordatorio creado:\n_"${r.text}"_\n${r._human || ''}\n` +
+            `📲 Se enviará a: \`${dest}\`\nID: \`${r.id.slice(0, 6)}\``,
         };
       } catch (e: any) {
         return {

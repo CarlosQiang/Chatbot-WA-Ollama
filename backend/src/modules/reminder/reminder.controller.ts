@@ -31,17 +31,19 @@ export class ReminderController {
     @Body()
     body: {
       input: string;
+      /** @deprecated ignorado: todos los recordatorios van a WhatsApp. */
       target?: 'telegram' | 'whatsapp';
       telegramChatId?: string;
+      /** Override del WhatsApp destino. Si no, usa personalWhatsappChatId. */
       whatsappChatId?: string;
     },
   ) {
     if (!body?.input) throw new BadRequestException('input requerido');
     return this.reminder.parseAndCreate(body.input, {
       createdBy: 'dashboard',
-      telegramChatId: body.telegramChatId || 'dashboard',
+      telegramChatId: body.telegramChatId,
       whatsappChatId: body.whatsappChatId,
-      defaultTarget: body.target || 'telegram',
+      defaultTarget: 'whatsapp',
     });
   }
 

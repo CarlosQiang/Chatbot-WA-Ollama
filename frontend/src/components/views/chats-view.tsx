@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { RotateCcw, Send, MessageSquare, ChevronLeft } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { getSocket } from '@/lib/socket';
 
 export function ChatsView() {
   const qc = useQueryClient();
@@ -29,6 +30,24 @@ export function ChatsView() {
     enabled: !!selectedChatId,
     refetchInterval: 3_000,
   });
+
+  // Realtime: cuando el backend emite `message:new`, invalidamos el listado
+  // y los mensajes del chat afectado. El polling sigue activo como fallback
+  // si el socket está caído.
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+    const handler = (msg: { chatId?: string }) => {
+      qc.invalidateQueries({ queryKey: ['chats'] });
+      if (msg?.chatId) {
+        qc.invalidateQueries({ queryKey: ['messages', msg.chatId] });
+      }
+    };
+    socket.on('message:new', handler);
+    return () => {
+      socket.off('message:new', handler);
+    };
+  }, [qc]);
 
   const reset = useMutation({
     mutationFn: () => apiClient.resetChat(selectedChatId!),

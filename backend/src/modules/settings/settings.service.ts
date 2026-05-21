@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { normalizeChatId, normalizeChatIdList } from '../../common/validators';
 
 export const SETTING_KEYS = {
   ACTIVE_MODEL: 'active_model',
@@ -10,7 +11,16 @@ export const SETTING_KEYS = {
   ALLOWED_CHAT_IDS: 'allowedChatIds',
   ADMIN_CHAT_IDS: 'adminChatIds',
   AUTO_REPLY_ENABLED: 'autoReplyEnabled',
+  /** @deprecated single-chatId legacy. Mantenido para migración runtime. */
   AUTO_REPLY_CHAT_ID: 'autoReplyChatId',
+  /** Lista CSV de chatIds Auto-IA (formato canónico 34XXXXXXXXX@c.us). */
+  AUTO_REPLY_CHAT_IDS: 'autoReplyChatIds',
+  /**
+   * chatId WhatsApp personal del usuario. Destino por defecto para
+   * recordatorios y notas creados desde Telegram o dashboard.
+   * Si está vacío, fallback al self-chat del bot (OPENWA_SESSION_PHONE@c.us).
+   */
+  PERSONAL_WA_CHAT_ID: 'personalWhatsappChatId',
   BOT_MODE: 'bot_mode',
   REMINDER_TZ: 'reminderTz',
   TG_BOT_TOKEN: 'tgBotToken',
@@ -118,14 +128,11 @@ export class SettingsService {
   async getAllowedChatIds(): Promise<string[]> {
     const saved = await this.get(SETTING_KEYS.ALLOWED_CHAT_IDS);
     const raw = saved ?? process.env.ALLOWED_CHAT_IDS ?? '';
-    return raw.split(',').map((s) => s.trim()).filter(Boolean);
+    return normalizeChatIdList(raw);
   }
 
-  async setAllowedChatIds(ids: string[], auditedBy?: string) {
-    const cleaned = (ids || [])
-      .map((s) => (s || '').trim())
-      .filter(Boolean)
-      .filter((s, i, a) => a.indexOf(s) === i);
+  async setAllowedChatIds(ids: string[] | string, auditedBy?: string) {
+    const cleaned = normalizeChatIdList(ids);
     return this.set(SETTING_KEYS.ALLOWED_CHAT_IDS, cleaned.join(','), auditedBy);
   }
 
@@ -136,24 +143,28 @@ export class SettingsService {
   async isAllowed(chatId: string): Promise<boolean> {
     const list = await this.getAllowedChatIds();
     if (list.length === 0) return this.isOpenToAll();
-    return list.includes(chatId);
+    const incoming = normalizeChatId(chatId);
+    if (!incoming) return false;
+    return list.includes(incoming);
   }
 
   async addAllowed(chatId: string, auditedBy?: string) {
     const list = await this.getAllowedChatIds();
-    if (!list.includes(chatId)) list.push(chatId);
+    const n = normalizeChatId(chatId);
+    if (n && !list.includes(n)) list.push(n);
     return this.setAllowedChatIds(list, auditedBy);
   }
 
   async removeAllowed(chatId: string, auditedBy?: string) {
     const list = await this.getAllowedChatIds();
-    return this.setAllowedChatIds(list.filter((c) => c !== chatId), auditedBy);
+    const n = normalizeChatId(chatId);
+    return this.setAllowedChatIds(list.filter((c) => c !== n), auditedBy);
   }
 
   async getAdminChatIds(): Promise<string[]> {
     const saved = await this.get(SETTING_KEYS.ADMIN_CHAT_IDS);
     const raw = saved ?? process.env.ADMIN_CHAT_IDS ?? '';
-    const list = raw.split(',').map((s) => s.trim()).filter(Boolean);
+    const list = normalizeChatIdList(raw);
 
     const botPhone = (process.env.OPENWA_SESSION_PHONE || '').replace(/\D/g, '');
     if (botPhone) {
@@ -163,17 +174,16 @@ export class SettingsService {
     return list;
   }
 
-  async setAdminChatIds(ids: string[], auditedBy?: string) {
-    const cleaned = (ids || [])
-      .map((s) => (s || '').trim())
-      .filter(Boolean)
-      .filter((s, i, a) => a.indexOf(s) === i);
+  async setAdminChatIds(ids: string[] | string, auditedBy?: string) {
+    const cleaned = normalizeChatIdList(ids);
     return this.set(SETTING_KEYS.ADMIN_CHAT_IDS, cleaned.join(','), auditedBy);
   }
 
   async isAdmin(chatId: string): Promise<boolean> {
     const list = await this.getAdminChatIds();
-    return list.includes(chatId);
+    const incoming = normalizeChatId(chatId);
+    if (!incoming) return false;
+    return list.includes(incoming);
   }
 
   async getBotMode(): Promise<BotMode> {
@@ -191,23 +201,93 @@ export class SettingsService {
     return this.set(SETTING_KEYS.BOT_MODE, mode, auditedBy);
   }
 
-  async getAutoReply(): Promise<{ enabled: boolean; chatId: string }> {
+  /**
+   * Devuelve el estado de Auto-IA con la lista canónica de chatIds.
+   * Migración runtime: si solo existe el legacy `autoReplyChatId` (single)
+   * pero no la lista nueva, lo migra a la lista al primer acceso.
+   */
+  async getAutoReply(): Promise<{ enabled: boolean; chatIds: string[] }> {
     const en = await this.get(SETTING_KEYS.AUTO_REPLY_ENABLED);
-    const cid = await this.get(SETTING_KEYS.AUTO_REPLY_CHAT_ID);
-    return { enabled: en === 'true', chatId: cid || '' };
+    const csv = await this.get(SETTING_KEYS.AUTO_REPLY_CHAT_IDS);
+    let chatIds = normalizeChatIdList(csv);
+
+    if (chatIds.length === 0) {
+      // Migración runtime del campo single legacy.
+      const legacy = await this.get(SETTING_KEYS.AUTO_REPLY_CHAT_ID);
+      if (legacy) {
+        const n = normalizeChatId(legacy);
+        if (n) {
+          chatIds = [n];
+          // Persiste la migración para no repetir.
+          await this.set(SETTING_KEYS.AUTO_REPLY_CHAT_IDS, n, 'auto-migration');
+        }
+      }
+    }
+
+    return { enabled: en === 'true', chatIds };
   }
 
-  async setAutoReply(enabled: boolean, chatId?: string, auditedBy?: string) {
-    await this.set(SETTING_KEYS.AUTO_REPLY_ENABLED, enabled ? 'true' : 'false', auditedBy);
-    if (chatId !== undefined) {
-      await this.set(SETTING_KEYS.AUTO_REPLY_CHAT_ID, chatId, auditedBy);
+  /**
+   * Guarda la configuración Auto-IA. `chatIds` puede llegar como array
+   * o como string CSV (`"34X,+34Y, 34 Z"`); se normaliza y deduplica.
+   * Si chatIds llega `undefined`, no se toca la lista (solo se guarda enabled).
+   */
+  async setAutoReply(
+    enabled: boolean,
+    chatIds?: string[] | string | null,
+    auditedBy?: string,
+  ) {
+    await this.set(
+      SETTING_KEYS.AUTO_REPLY_ENABLED,
+      enabled ? 'true' : 'false',
+      auditedBy,
+    );
+    if (chatIds !== undefined) {
+      const cleaned = chatIds === null ? [] : normalizeChatIdList(chatIds);
+      await this.set(
+        SETTING_KEYS.AUTO_REPLY_CHAT_IDS,
+        cleaned.join(','),
+        auditedBy,
+      );
+      // Mantén el legacy en sync para que un downgrade no rompa nada.
+      await this.set(
+        SETTING_KEYS.AUTO_REPLY_CHAT_ID,
+        cleaned[0] || '',
+        auditedBy,
+      );
     }
     return this.getAutoReply();
   }
 
+  /**
+   * Devuelve true si el chatId entrante está en la lista Auto-IA y la
+   * feature está activa. Normaliza el chatId entrante para tolerar
+   * variaciones de formato (mayúsculas, sufijo @s.whatsapp.net, etc).
+   */
   async isAutoReply(chatId: string): Promise<boolean> {
-    const { enabled, chatId: target } = await this.getAutoReply();
-    return enabled && target === chatId;
+    const { enabled, chatIds } = await this.getAutoReply();
+    if (!enabled || chatIds.length === 0) return false;
+    const incoming = normalizeChatId(chatId);
+    if (!incoming) return false;
+    return chatIds.includes(incoming);
+  }
+
+  /**
+   * WhatsApp personal del usuario. Si no está configurado, fallback al
+   * self-chat del bot. Es el destino "por defecto" para recordatorios y
+   * notas creados desde Telegram o desde el dashboard.
+   */
+  async getPersonalWhatsappChatId(): Promise<string> {
+    const saved = await this.get(SETTING_KEYS.PERSONAL_WA_CHAT_ID);
+    const normalized = saved ? normalizeChatId(saved) : null;
+    if (normalized) return normalized;
+    const botPhone = (process.env.OPENWA_SESSION_PHONE || '').replace(/\D/g, '');
+    return botPhone ? `${botPhone}@c.us` : '';
+  }
+
+  async setPersonalWhatsappChatId(chatId: string, auditedBy?: string) {
+    const cleaned = chatId.trim() === '' ? '' : normalizeChatId(chatId) || '';
+    return this.set(SETTING_KEYS.PERSONAL_WA_CHAT_ID, cleaned, auditedBy);
   }
 
   async getReminderTz(): Promise<string> {

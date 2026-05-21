@@ -55,12 +55,14 @@ export function RemindersView() {
           />
           <div className="flex justify-between items-end gap-3">
             <div className="text-[11px] text-fg-subtle leading-relaxed flex-1">
+              Todos los recordatorios se envían por <strong className="text-accent">WhatsApp</strong> al
+              número configurado en Ajustes → "Mi WhatsApp personal".
+              <br />
               Formatos:
               <code className="text-fg-muted ml-1">15:30 texto</code> ·
               <code className="text-fg-muted ml-1">25/12 09:00 texto</code> ·
               <code className="text-fg-muted ml-1">+30m texto</code> ·
-              <code className="text-fg-muted ml-1">diario HH:MM texto</code> ·
-              <code className="text-fg-muted ml-1">wa HH:MM texto</code> (al WhatsApp)
+              <code className="text-fg-muted ml-1">diario HH:MM texto</code>
             </div>
             <Button variant="primary" onClick={() => create.mutate()} disabled={!input || create.isPending}>
               <Plus size={12} /> Crear
@@ -69,10 +71,10 @@ export function RemindersView() {
         </div>
       </Card>
 
-      <Card title="Recordatorios activos">
+      <Card title={`Recordatorios activos${data?.tz ? ` (${data.tz})` : ''}`}>
         {isLoading ? (
           <Skeleton className="h-32" />
-        ) : !data?.length ? (
+        ) : !data?.list?.length ? (
           <EmptyState
             icon={<Bell size={20} strokeWidth={1.5} />}
             title="Sin recordatorios"
@@ -80,20 +82,20 @@ export function RemindersView() {
           />
         ) : (
           <div className="divide-y divide-border -m-4">
-            {data.map((r: any) => {
+            {data.list.map((r: any) => {
               const when = r.fireAt
-                ? new Date(r.fireAt).toLocaleString('es-ES')
+                ? new Date(r.fireAt).toLocaleString('es-ES', {
+                    timeZone: data.tz,
+                  })
                 : `cron · ${r.cronExpression}`;
               return (
                 <div key={r.id} className="px-4 py-3 flex items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="text-sm">{r.text}</div>
-                    <div className="text-[11px] text-fg-subtle mt-1 flex items-center gap-2">
+                    <div className="text-[11px] text-fg-subtle mt-1 flex items-center gap-2 flex-wrap">
                       <span className="font-mono">{r.id.slice(0, 6)}</span>
                       <span>·</span>
-                      <span className={r.target === 'whatsapp' ? 'text-accent' : 'text-info'}>
-                        {r.target}
-                      </span>
+                      <span className="text-accent">→ {r.targetChatId}</span>
                       <span>·</span>
                       <span>{when}</span>
                     </div>
