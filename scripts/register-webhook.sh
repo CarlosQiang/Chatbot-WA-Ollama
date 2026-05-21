@@ -9,9 +9,17 @@ get_env() {
 }
 
 BACKEND_PORT=$(get_env BACKEND_PORT)
+BACKEND_API_KEY=$(get_env BACKEND_API_KEY)
+
+if [ -z "$BACKEND_API_KEY" ] || [ "$BACKEND_API_KEY" = "internal_change_me_token" ]; then
+  echo "❌ BACKEND_API_KEY no configurada en .env"
+  exit 1
+fi
 
 # Llama a nuestro endpoint que internamente borra duplicados y registra
-# con los eventos correctos (message.received + message.sent).
+# con los eventos correctos (message.received).
+echo "==> Registrando webhook en OpenWA..."
 curl -s -X POST "http://localhost:${BACKEND_PORT}/openwa/webhooks/register" \
+  -H "x-api-key: ${BACKEND_API_KEY}" \
   -H 'Content-Type: application/json' \
   -d '{}' | python3 -m json.tool || true
