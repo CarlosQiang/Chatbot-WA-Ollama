@@ -211,32 +211,84 @@ export class OpenWaService {
     }
   }
 
-  async sendText(chatId: string, text: string) {
-    try {
-      // 🪪 Firma invisible: cada mensaje del bot lleva esta marca al inicio.
-      const signed = `${OpenWaService.BOT_SIGNATURE}${text}`;
+  /**
+   * Detecta el error "Session 'xxx' is not active" devuelto por OpenWA
+   * cuando la sesión se ha quedado dormida.
+   */
+  private isSessionInactiveError(msg: string | undefined): boolean {
+    if (!msg) return false;
+    return /session\s+'[^']+'\s+is\s+not\s+active/i.test(msg) ||
+      /start\s+the\s+session\s+first/i.test(msg);
+  }
 
+  async sendText(chatId: string, text: string) {
+    // 🪪 Firma invisible: cada mensaje del bot lleva esta marca al inicio.
+    const signed = `${OpenWaService.BOT_SIGNATURE}${text}`;
+
+    const doSend = async () => {
       const { data } = await this.http.post(
         `/sessions/${this.sessionId}/messages/send-text`,
         { chatId, text: signed },
       );
-
-      // Defensa extra: tracking por messageId
-      const msgId = data?.id || data?.messageId || data?.key?.id || data?.data?.id;
-      if (msgId) {
-        try {
-          await this.redis.client.set(`wa:ownsent:${msgId}`, '1', 'EX', 3600);
-        } catch {}
-      }
-      // Defensa extra: dedup por contenido (usando el texto FIRMADO)
-      await this.markAsSent(chatId, signed);
-
-      await this.logs.write('info', 'openwa', `→ ${chatId}: ${text.slice(0, 80)}`);
       return data;
+    };
+
+    let data: any;
+    try {
+      data = await doSend();
     } catch (err: any) {
       const msg = err?.response?.data?.message || err.message;
-      await this.logs.write('error', 'openwa', `Error enviando a ${chatId}: ${msg}`);
-      throw new Error(msg);
+      // Auto-recovery: si la sesión está inactiva, la arrancamos y
+      // reintentamos UNA vez. Si vuelve a fallar, propagamos.
+      if (this.isSessionInactiveError(msg)) {
+        this.logger.warn(
+          `Session inactiva al enviar a ${chatId}. Intentando startSession y reintento...`,
+        );
+        await this.logs.write(
+          'warn',
+          'openwa',
+          `Session inactiva, auto-start y reintento -> ${chatId}`,
+        );
+        try {
+          await this.startSession();
+        } catch (startErr: any) {
+          await this.logs.write(
+            'error',
+            'openwa',
+            `Auto-start session fallo: ${startErr?.response?.data?.message || startErr.message}`,
+          );
+        }
+        // Espera breve para que OpenWA termine de inicializar.
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          data = await doSend();
+        } catch (retryErr: any) {
+          const retryMsg =
+            retryErr?.response?.data?.message || retryErr.message;
+          await this.logs.write(
+            'error',
+            'openwa',
+            `Reintento tras auto-start fallo enviando a ${chatId}: ${retryMsg}`,
+          );
+          throw new Error(retryMsg);
+        }
+      } else {
+        await this.logs.write('error', 'openwa', `Error enviando a ${chatId}: ${msg}`);
+        throw new Error(msg);
+      }
     }
+
+    // Defensa extra: tracking por messageId
+    const msgId = data?.id || data?.messageId || data?.key?.id || data?.data?.id;
+    if (msgId) {
+      try {
+        await this.redis.client.set(`wa:ownsent:${msgId}`, '1', 'EX', 3600);
+      } catch {}
+    }
+    // Defensa extra: dedup por contenido (usando el texto FIRMADO)
+    await this.markAsSent(chatId, signed);
+
+    await this.logs.write('info', 'openwa', `→ ${chatId}: ${text.slice(0, 80)}`);
+    return data;
   }
 }

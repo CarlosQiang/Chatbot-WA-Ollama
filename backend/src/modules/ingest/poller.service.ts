@@ -56,13 +56,44 @@ export class MessagePoller implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Extrae el body de un payload de OpenWA usando los mismos accesos que
+   * `IngestService.extract`. Lo necesitamos para filtrar mensajes firmados
+   * por el bot ANTES de pasarlos al ingest (evita spam en logs).
+   */
+  private extractText(m: any): string {
+    const p = m?.data || m?.message || m || {};
+    return (
+      p.body ||
+      p.text ||
+      p.content ||
+      p.message?.text ||
+      p.message?.conversation ||
+      p.message?.extendedTextMessage?.text ||
+      ''
+    );
+  }
+
   private async tick() {
     if (this.running) return; // evita solapamientos
     this.running = true;
     try {
       const msgs = await this.openwa.listRecentMessages(20);
+      let skippedBotSigned = 0;
       for (const m of msgs) {
+        // Pre-filtro: los mensajes firmados por el bot son ecos suyos,
+        // descartar silenciosamente (no inundar logs cada 5s).
+        const txt = this.extractText(m);
+        if (OpenWaService.isBotSignedMessage(txt)) {
+          skippedBotSigned++;
+          continue;
+        }
         await this.ingest.ingest(m);
+      }
+      if (skippedBotSigned > 0) {
+        this.logger.verbose(
+          `Tick: ${skippedBotSigned} ecos propios pre-filtrados (firma bot)`,
+        );
       }
     } finally {
       this.running = false;

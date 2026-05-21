@@ -56,8 +56,7 @@ fi
 
 # Datos fijos del usuario
 OPENWA_API_URL=$(read_existing "OPENWA_API_URL" "http://192.168.8.200:2785/api")
-OPENWA_SESSION_ID=$(read_existing "OPENWA_SESSION_ID" "6d50d269-5457-46d0-be01-700ed73ae044")
-OPENWA_SESSION_NAME=$(read_existing "OPENWA_SESSION_NAME" "bot-prueba")
+OPENWA_SESSION_NAME=$(read_existing "OPENWA_SESSION_NAME" "chatbot-wa")
 OPENWA_SESSION_PHONE=$(read_existing "OPENWA_SESSION_PHONE" "34670209033")
 OLLAMA_BASE_URL=$(read_existing "OLLAMA_BASE_URL" "http://host.docker.internal:11434")
 OLLAMA_FALLBACK_URLS=$(read_existing "OLLAMA_FALLBACK_URLS" "http://192.168.8.200:11434")
@@ -68,8 +67,53 @@ TEST_WHATSAPP_CHAT_ID=$(read_existing "TEST_WHATSAPP_CHAT_ID" "34670209033@c.us"
 OPENWA_API_KEY=$(read_existing "OPENWA_API_KEY" "")
 if [ -z "$OPENWA_API_KEY" ] || [ "$OPENWA_API_KEY" = "CAMBIAR_POR_TU_API_KEY" ]; then
   echo ""
-  echo "👉 Pega tu OPENWA_API_KEY (sacala con: docker exec openwa-api printenv | grep -i key)"
+  echo "👉 Pega tu OPENWA_API_KEY (la sacas del dashboard OpenWA → API Keys)"
   read -r OPENWA_API_KEY
+fi
+
+# Autodetectar OPENWA_SESSION_ID llamando a la API de OpenWA con la API key.
+# Busca la sesión por nombre y, si no la encuentra, por phone.
+OPENWA_SESSION_ID=$(read_existing "OPENWA_SESSION_ID" "")
+if [ -z "$OPENWA_SESSION_ID" ] || [ "$OPENWA_SESSION_ID" = "6d50d269-5457-46d0-be01-700ed73ae044" ]; then
+  echo ""
+  echo "🔎 Detectando Session UUID de OpenWA (sesión '${OPENWA_SESSION_NAME}')..."
+  RAW_SESSIONS=$(curl -sS -m 8 -H "x-api-key: ${OPENWA_API_KEY}" \
+    "${OPENWA_API_URL}/sessions" 2>/dev/null || echo "")
+  if [ -n "$RAW_SESSIONS" ] && command -v python3 >/dev/null 2>&1; then
+    OPENWA_SESSION_ID=$(python3 - "$RAW_SESSIONS" "$OPENWA_SESSION_NAME" "$OPENWA_SESSION_PHONE" <<'PY'
+import json, sys, re
+try:
+    data = json.loads(sys.argv[1])
+except Exception:
+    sys.exit(0)
+sessions = data if isinstance(data, list) else data.get("data", data.get("sessions", []))
+target_name = sys.argv[2].lower()
+target_phone = re.sub(r"\D", "", sys.argv[3])
+found = ""
+for s in sessions:
+    name = str(s.get("name") or s.get("sessionName") or "").lower()
+    if name == target_name:
+        found = s.get("id") or s.get("sessionId") or ""
+        break
+if not found:
+    for s in sessions:
+        phone = re.sub(r"\D", "", str(s.get("phone") or s.get("number") or ""))
+        if phone and phone == target_phone:
+            found = s.get("id") or s.get("sessionId") or ""
+            break
+print(found)
+PY
+)
+  fi
+  if [ -n "$OPENWA_SESSION_ID" ]; then
+    echo "   ✓ Encontrado: ${OPENWA_SESSION_ID}"
+  else
+    echo ""
+    echo "⚠️  No pude detectar el Session UUID automáticamente."
+    echo "   Abre http://192.168.8.200:2887/sessions, copia el SESSION ID completo"
+    echo "   de la sesión '${OPENWA_SESSION_NAME}' y pégalo aquí:"
+    read -r OPENWA_SESSION_ID
+  fi
 fi
 
 TELEGRAM_BOT_TOKEN=$(read_existing "TELEGRAM_BOT_TOKEN" "")

@@ -22,9 +22,24 @@ fi
 
 # 2) Validar variables críticas (sin source para evitar problemas)
 OPENWA_API_KEY=$(get_env OPENWA_API_KEY)
-if [ -z "$OPENWA_API_KEY" ] || [ "$OPENWA_API_KEY" = "CAMBIAR_POR_TU_API_KEY" ]; then
+if [ -z "$OPENWA_API_KEY" ] || [ "$OPENWA_API_KEY" = "CAMBIAR_POR_TU_API_KEY" ] \
+   || [[ "$OPENWA_API_KEY" == CAMBIAR_* ]]; then
   echo "❌ Falta OPENWA_API_KEY en .env"
   exit 1
+fi
+
+# 2b) Si OPENWA_SESSION_ID es placeholder, autodetectarlo con init-env.sh
+OPENWA_SESSION_ID=$(get_env OPENWA_SESSION_ID)
+if [ -z "$OPENWA_SESSION_ID" ] || [[ "$OPENWA_SESSION_ID" == CAMBIAR_* ]] \
+   || [[ "$OPENWA_SESSION_ID" == AUTODETECTAR* ]]; then
+  echo "→ OPENWA_SESSION_ID no configurado, ejecutando init-env.sh para autodetectarlo…"
+  bash scripts/init-env.sh
+  OPENWA_SESSION_ID=$(get_env OPENWA_SESSION_ID)
+  if [ -z "$OPENWA_SESSION_ID" ] || [[ "$OPENWA_SESSION_ID" == CAMBIAR_* ]] \
+     || [[ "$OPENWA_SESSION_ID" == AUTODETECTAR* ]]; then
+    echo "❌ No pude obtener OPENWA_SESSION_ID. Edita .env a mano y vuelve a arrancar."
+    exit 1
+  fi
 fi
 
 FRONTEND_PORT=$(get_env FRONTEND_PORT)
@@ -49,14 +64,25 @@ done
 echo "→ Construyendo y arrancando contenedores…"
 docker compose up -d --build
 
+echo "→ Esperando a que el backend responda…"
+for i in $(seq 1 30); do
+  if curl -fsS --max-time 2 "http://localhost:${BACKEND_PORT}/health" >/dev/null 2>&1; then
+    echo "   ✓ Backend listo"
+    break
+  fi
+  sleep 2
+done
+
+echo "→ Registrando webhook en OpenWA…"
+bash scripts/register-webhook.sh || echo "  (puedes registrarlo a mano después con scripts/register-webhook.sh)"
+
 echo ""
 echo "✅ Stack arrancado"
-echo "   Dashboard: http://localhost:${FRONTEND_PORT}"
-echo "   API:       http://localhost:${BACKEND_PORT}/api  (Swagger)"
-echo "   Health:    http://localhost:${BACKEND_PORT}/health"
+echo "   Dashboard: http://192.168.8.200:${FRONTEND_PORT}"
+echo "   API:       http://192.168.8.200:${BACKEND_PORT}/api  (Swagger)"
+echo "   Health:    http://192.168.8.200:${BACKEND_PORT}/health"
 echo ""
 echo "Siguiente paso recomendado:"
-echo "   ./scripts/register-webhook.sh    # registrar webhook en OpenWA"
 echo "   ./scripts/check.sh               # comprobar estado"
 echo ""
 echo "Logs en vivo:  docker compose logs -f backend"

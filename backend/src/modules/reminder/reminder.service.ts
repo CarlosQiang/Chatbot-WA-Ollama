@@ -611,13 +611,25 @@ export class ReminderService {
     const tz = await this.settings.getReminderTz();
     const body = this.formatWhatsappBody(r, tz);
 
-    // Resolución defensiva del destino: si el recordatorio se creó cuando
-    // aún no había personalWhatsappChatId, o el targetChatId quedó vacío
-    // por alguna razón, fallback al WhatsApp configurado AHORA.
-    let dest = r.targetChatId;
-    const n = dest ? normalizeChatId(dest) : null;
-    if (!n) dest = await this.resolveWaTarget();
-    else dest = n;
+    // Resolución defensiva del destino:
+    //  1) Si el recordatorio se creó con target='telegram' (legacy), el
+    //     targetChatId es un Telegram user_id (ej. "6861735215"), NO un
+    //     WhatsApp. Lo ignoramos y mandamos al personalWhatsappChatId.
+    //  2) Si target='whatsapp' y el targetChatId normaliza a algo válido,
+    //     lo respetamos.
+    //  3) Si no hay nada utilizable, fallback al WhatsApp configurado AHORA.
+    let dest: string | null = null;
+    if (r.target === 'whatsapp' && r.targetChatId) {
+      dest = normalizeChatId(r.targetChatId);
+    }
+    if (!dest) {
+      if (r.target === 'telegram' && r.targetChatId) {
+        this.logger.warn(
+          `[reminder] ${r.id.slice(0, 6)} legacy target=telegram (chatId=${r.targetChatId}), redirijo a WhatsApp personal`,
+        );
+      }
+      dest = await this.resolveWaTarget();
+    }
 
     if (!dest) {
       await this.logs.write(
