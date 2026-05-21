@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ReminderService } from '../reminder/reminder.service';
 import { NotesService, NoteSource } from '../notes/notes.service';
 import { LogsService } from '../logs/logs.service';
+import { SettingsService } from '../settings/settings.service';
 
 export type IntentResult =
   | { intent: 'reminder'; reply: string }
@@ -17,6 +18,7 @@ export class IntentService {
     private readonly reminder: ReminderService,
     private readonly notes: NotesService,
     private readonly logs: LogsService,
+    private readonly settings: SettingsService,
   ) {}
 
   /**
@@ -83,6 +85,50 @@ export class IntentService {
 
     if (noteMatch) {
       const text = noteMatch[1].trim();
+      // Si la nota viene de Telegram o del dashboard, la organizamos con IA
+      // y la enviamos al WhatsApp personal. Confirmación corta — la nota
+      // completa queda en WhatsApp. Si viene de WhatsApp, comportamiento
+      // legacy (guardar + responder en el mismo chat).
+      if (params.source === 'telegram' || params.source === 'dashboard') {
+        try {
+          const personal = await this.settings.getPersonalWhatsappChatId();
+          if (!personal) {
+            // Fallback: guardar solo, avisar de configurar destino.
+            const note = await this.notes.create({
+              text,
+              source: params.source,
+              sourceId: params.sourceId,
+              createdBy: params.createdBy,
+            });
+            return {
+              intent: 'note',
+              reply:
+                `Nota guardada (pero sin destino WhatsApp configurado).\nID: \`${note.id.slice(0, 6)}\`\n\n` +
+                'Configura tu *WhatsApp personal* en el dashboard para que las notas se manden ahí.',
+            };
+          }
+          const r = await this.notes.organizeAndSendToWhatsapp({
+            text,
+            source: params.source,
+            sourceId: params.sourceId,
+            createdBy: params.createdBy,
+            whatsappTarget: personal,
+          });
+          return {
+            intent: 'note',
+            reply: r.delivered
+              ? `✅ Nota organizada y enviada a tu WhatsApp\n_ID:_ \`${r.noteId.slice(0, 6)}\``
+              : `⚠ Nota guardada pero NO se pudo enviar a WhatsApp (revisa logs).\n_ID:_ \`${r.noteId.slice(0, 6)}\``,
+          };
+        } catch (e: any) {
+          return {
+            intent: 'note',
+            reply: `No pude organizar la nota: ${e.message || 'error'}`,
+          };
+        }
+      }
+
+      // Legacy / WhatsApp: solo guardar + confirmar en el mismo chat.
       const note = await this.notes.create({
         text,
         source: params.source,
@@ -106,9 +152,43 @@ export class IntentService {
 
     if (organizeMatch) {
       const text = organizeMatch[1].trim();
+      // Desde Telegram/dashboard: organizar + enviar a WhatsApp + confirmación
+      // corta. Desde WhatsApp: organizar y devolver al mismo chat (ya es WA).
+      if (params.source === 'telegram' || params.source === 'dashboard') {
+        try {
+          const personal = await this.settings.getPersonalWhatsappChatId();
+          if (!personal) {
+            return {
+              intent: 'organize',
+              reply:
+                '⚠ No tienes configurado tu *WhatsApp personal*.\n' +
+                'Ve a Ajustes → "Mi WhatsApp personal" y configura un número.',
+            };
+          }
+          const r = await this.notes.organizeAndSendToWhatsapp({
+            text,
+            source: params.source,
+            sourceId: params.sourceId,
+            createdBy: params.createdBy,
+            whatsappTarget: personal,
+          });
+          return {
+            intent: 'organize',
+            reply: r.delivered
+              ? `✅ Nota organizada y enviada a tu WhatsApp\n_ID:_ \`${r.noteId.slice(0, 6)}\``
+              : `⚠ Nota organizada pero NO se pudo enviar a WhatsApp (revisa logs).\n_ID:_ \`${r.noteId.slice(0, 6)}\``,
+          };
+        } catch (e: any) {
+          return {
+            intent: 'organize',
+            reply: `No pude organizar: ${e.message || 'error'}`,
+          };
+        }
+      }
+
+      // Legacy / WhatsApp: organizar y devolver al mismo chat.
       try {
         const organized = await this.notes.organize(text);
-        // Guardar tambien como nota organizada
         await this.notes.create({
           text,
           source: params.source,

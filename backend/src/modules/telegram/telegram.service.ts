@@ -618,15 +618,37 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       }
 
       // ─── Notas ─────────────────────────────────────────
+      // Todas las notas creadas desde Telegram se ORGANIZAN con IA y se envían
+      // al WhatsApp personal. Telegram solo recibe una confirmación corta para
+      // no duplicar contenido (la nota completa queda en WhatsApp).
       case '/nota': {
-        if (!args) return this.sendMessage(chatId, 'Uso: `/nota <texto>`');
-        const n = await this.notes.create({
-          text: args,
-          source: 'telegram',
-          sourceId: String(chatId),
-          createdBy: `tg:${userId}`,
-        });
-        return this.sendMessage(chatId, `Nota guardada: \`${n.id.slice(0, 6)}\``);
+        if (!args) return this.sendMessage(chatId, 'Uso: `/nota <texto>` — lo organizo con IA y lo mando a tu WhatsApp');
+        try {
+          const personal = await this.settings.getPersonalWhatsappChatId();
+          if (!personal) {
+            return this.sendMessage(
+              chatId,
+              '⚠ No tienes configurado tu *WhatsApp personal*.\n' +
+                'Ve a Ajustes → "Mi WhatsApp personal" y configura un número.',
+            );
+          }
+          await this.sendMessage(chatId, '_Organizando nota..._', null);
+          const r = await this.notes.organizeAndSendToWhatsapp({
+            text: args,
+            source: 'telegram',
+            sourceId: String(chatId),
+            createdBy: `tg:${userId}`,
+            whatsappTarget: personal,
+          });
+          return this.sendMessage(
+            chatId,
+            r.delivered
+              ? `✅ Nota organizada y enviada a tu WhatsApp\n_ID:_ \`${r.noteId.slice(0, 6)}\``
+              : `⚠ Nota guardada pero NO se pudo enviar a WhatsApp (revisa logs).\n_ID:_ \`${r.noteId.slice(0, 6)}\``,
+          );
+        } catch (e: any) {
+          return this.sendMessage(chatId, `Error: ${e.message}`);
+        }
       }
       case '/notas': {
         const list = await this.notes.list({ limit: 20 });
@@ -674,12 +696,12 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
             createdBy: `tg:${userId}`,
             whatsappTarget: personal,
           });
-          const status = result.delivered
-            ? `📲 Enviado a WhatsApp \`${result.sentTo}\``
-            : `⚠ No se pudo enviar a WhatsApp (revisa logs).`;
+          // Confirmación corta — la nota completa queda en WhatsApp.
           return this.sendMessage(
             chatId,
-            `*Nota organizada:*\n\n${result.organized}\n\n${status}\n_ID:_ \`${result.noteId.slice(0, 6)}\``,
+            result.delivered
+              ? `✅ Nota organizada y enviada a tu WhatsApp\n_ID:_ \`${result.noteId.slice(0, 6)}\``
+              : `⚠ Nota guardada pero NO se pudo enviar a WhatsApp (revisa logs).\n_ID:_ \`${result.noteId.slice(0, 6)}\``,
           );
         } catch (e: any) {
           return this.sendMessage(chatId, `Error: ${e.message}`);
@@ -700,12 +722,10 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       createdBy: `tg:${chatId}`,
     });
     if (intentResult.intent !== 'chat') {
+      // intent.service ya organiza Y envía a WhatsApp para 'note' y
+      // 'organize' cuando vienen de Telegram. Aquí solo contestamos
+      // la confirmación corta en Telegram sin duplicar contenido.
       await this.sendMessage(chatId, intentResult.reply);
-      // Si el intent fue organizar, ya quedó como nota — también la
-      // enviamos al WhatsApp personal con formato bonito.
-      if (intentResult.intent === 'organize') {
-        await this.maybeForwardOrganizedToWhatsapp(chatId, intentResult.reply);
-      }
       return;
     }
 
@@ -726,12 +746,12 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           createdBy: `tg:${chatId}`,
           whatsappTarget: personal,
         });
-        const status = r.delivered
-          ? `📲 Enviado a WhatsApp \`${r.sentTo}\``
-          : `⚠ No se pudo enviar a WhatsApp (revisa logs).`;
+        // Confirmación corta — el contenido completo va a WhatsApp.
         await this.sendMessage(
           chatId,
-          `*Nota organizada:*\n\n${r.organized}\n\n${status}\n_ID:_ \`${r.noteId.slice(0, 6)}\``,
+          r.delivered
+            ? `✅ Nota organizada y enviada a tu WhatsApp\n_ID:_ \`${r.noteId.slice(0, 6)}\``
+            : `⚠ Nota guardada pero NO se pudo enviar a WhatsApp (revisa logs).\n_ID:_ \`${r.noteId.slice(0, 6)}\``,
         );
         return;
       } catch (e: any) {
