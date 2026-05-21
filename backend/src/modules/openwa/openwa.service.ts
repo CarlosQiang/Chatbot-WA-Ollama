@@ -3,6 +3,7 @@ import axios, { AxiosInstance } from 'axios';
 import * as crypto from 'crypto';
 import { LogsService } from '../logs/logs.service';
 import { RedisService } from '../../redis/redis.service';
+import { isPlaceholderWebhookSecret } from '../../common/validators';
 
 @Injectable()
 export class OpenWaService {
@@ -170,29 +171,61 @@ export class OpenWaService {
 
   async registerWebhook(
     url: string,
-    events: string[] = ['message.received', 'message.sent'],
+    events: string[] = ['message.received'],
   ) {
     try {
-      // Borra webhooks previos con la misma URL
+      const secret = process.env.WEBHOOK_SECRET;
+      const hasSecret = !isPlaceholderWebhookSecret(secret);
+
+      // Construye la URL final. Si tenemos secret, lo añadimos como ?token=
+      // como FALLBACK por si la version de OpenWA no propaga `headers`.
+      // Importante: comparamos la URL ya con token para no dejar duplicados.
+      let finalUrl = url;
+      if (hasSecret) {
+        const sep = url.includes('?') ? '&' : '?';
+        finalUrl = `${url}${sep}token=${encodeURIComponent(secret!)}`;
+      }
+
+      // Borra webhooks previos con la misma URL base (con o sin token)
       try {
         const existing = await this.listWebhooks();
         if (Array.isArray(existing)) {
           for (const w of existing) {
-            if (w?.url === url && w?.id) {
+            const wUrl: string = w?.url || '';
+            const baseMatch =
+              wUrl === url ||
+              wUrl === finalUrl ||
+              wUrl.split('?')[0] === url.split('?')[0];
+            if (baseMatch && w?.id) {
               await this.http.delete(`/sessions/${this.sessionId}/webhooks/${w.id}`);
             }
           }
         }
       } catch {}
 
-      const { data } = await this.http.post(`/sessions/${this.sessionId}/webhooks`, {
-        url,
-        events,
-      });
-      await this.logs.write('info', 'openwa', `Webhook registrado: ${url}`, { events });
+      const body: any = { url: finalUrl, events };
+      if (hasSecret) {
+        // OpenWA reenvía estas cabeceras al llamar a nuestro endpoint
+        body.headers = { 'x-webhook-secret': secret };
+      }
+
+      const { data } = await this.http.post(
+        `/sessions/${this.sessionId}/webhooks`,
+        body,
+      );
+      await this.logs.write(
+        'info',
+        'openwa',
+        `Webhook registrado: ${url}`,
+        { events, withSecret: hasSecret },
+      );
       return data;
     } catch (err) {
-      await this.logs.write('error', 'openwa', `Error registrando webhook: ${(err as Error).message}`);
+      await this.logs.write(
+        'error',
+        'openwa',
+        `Error registrando webhook: ${(err as Error).message}`,
+      );
       throw err;
     }
   }
