@@ -204,6 +204,14 @@ export const apiClient = {
       .then((r) => r.data),
   saveAutoReply: (data: { enabled: boolean; chatIds?: string[] }) =>
     api.put('/settings/auto-reply', data).then((r) => r.data),
+  getAutoReplyPrompt: () =>
+    api
+      .get<{ prompt: string; persona: string; default: string }>(
+        '/settings/auto-reply/prompt',
+      )
+      .then((r) => r.data),
+  saveAutoReplyPrompt: (data: { prompt?: string; persona?: string }) =>
+    api.put('/settings/auto-reply/prompt', data).then((r) => r.data),
 
   // ─── Whitelist chatIds ─────────────────────────────────────
   getAllowedChats: () =>
@@ -229,6 +237,49 @@ export const apiClient = {
       .put<{ chatId: string }>('/settings/personal-whatsapp', { chatId })
       .then((r) => r.data),
 
+  // ─── Proveedor IA (Ollama | OpenAI) ───────────────────────
+  getAiSettings: () =>
+    api
+      .get<{
+        provider: 'ollama' | 'openai';
+        model: string;
+        temperature: number;
+        openaiConfigured: boolean;
+        openaiBaseUrl: string;
+        availableProviders: Array<'ollama' | 'openai'>;
+      }>('/settings/ai')
+      .then((r) => r.data),
+  saveAiSettings: (data: {
+    provider?: 'ollama' | 'openai';
+    temperature?: number;
+    openaiApiKey?: string;
+    openaiBaseUrl?: string;
+    openaiModel?: string;
+  }) => api.put('/settings/ai', data).then((r) => r.data),
+  testOpenAi: (data: { baseUrl?: string; apiKey?: string }) =>
+    apiLong
+      .post<{ ok: boolean; models?: string[]; error?: string; latencyMs?: number }>(
+        '/settings/ai/test-openai',
+        data,
+      )
+      .then((r) => r.data),
+
+  // ─── Prompts personalizables ──────────────────────────────
+  getPrompts: () =>
+    api
+      .get<{
+        notes: string;
+        reminders: string;
+        remindersAiFallback: boolean;
+        defaults: { notes: string; reminders: string };
+      }>('/settings/prompts')
+      .then((r) => r.data),
+  savePrompts: (data: {
+    notes?: string;
+    reminders?: string;
+    remindersAiFallback?: boolean;
+  }) => api.put('/settings/prompts', data).then((r) => r.data),
+
   // ─── Diagnostics ───────────────────────────────────────────
   testWhatsapp: (chatId?: string) =>
     api
@@ -247,4 +298,48 @@ export const apiClient = {
   openwaWebhooks: () => api.get('/openwa/webhooks').then((r) => r.data),
   openwaRegisterWebhook: (url?: string) =>
     api.post('/openwa/webhooks/register', { url }).then((r) => r.data),
+
+  // ─── OpenWA — gestión completa desde el panel ──────────────
+  openwaListSessions: () =>
+    api.get<any[]>('/openwa/sessions').then((r) => r.data),
+  openwaGetSessionById: (id: string) =>
+    api.get(`/openwa/sessions/${id}`).then((r) => r.data),
+  openwaGetQrById: (id: string) =>
+    api.get(`/openwa/sessions/${id}/qr`).then((r) => r.data),
+  openwaStartSession: (id?: string) =>
+    api
+      .post(id ? `/openwa/sessions/${id}/start` : '/openwa/session/start')
+      .then((r) => r.data),
+  openwaStopSession: (id?: string) =>
+    api
+      .post(id ? `/openwa/sessions/${id}/stop` : '/openwa/session/stop')
+      .then((r) => r.data),
+  openwaLogoutSession: (id?: string) =>
+    api
+      .post(id ? `/openwa/sessions/${id}/logout` : '/openwa/session/logout')
+      .then((r) => r.data),
+  openwaSwitchSession: (id: string) =>
+    api.post(`/openwa/sessions/${id}/switch`).then((r) => r.data),
+  openwaCreateSession: (data: { name: string; phone?: string; setActive?: boolean }) =>
+    api.post('/openwa/sessions', data).then((r) => r.data),
+
+  // Config (URL + API key + sessionId) editable desde panel
+  openwaGetConfig: () =>
+    api
+      .get<{
+        apiUrl: string;
+        apiKeyMask: string;
+        hasApiKey: boolean;
+        sessionId: string;
+        sessionName: string;
+        sessionPhone: string;
+      }>('/openwa/config')
+      .then((r) => r.data),
+  openwaSaveConfig: (data: {
+    apiUrl?: string;
+    apiKey?: string;
+    sessionId?: string;
+    sessionName?: string;
+    sessionPhone?: string;
+  }) => api.put('/openwa/config', data).then((r) => r.data),
 };

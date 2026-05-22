@@ -25,6 +25,7 @@ import { DevToolsModule } from './modules/devtools/devtools.module';
 import { TelegramModule } from './modules/telegram/telegram.module';
 import { NotesModule } from './modules/notes/notes.module';
 import { IntentModule } from './modules/intent/intent.module';
+import { AiModule } from './modules/ai/ai.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { IntentModule } from './modules/intent/intent.module';
     SystemModule,
     OpenWaModule,
     OllamaModule,
+    AiModule,
     CommandModule,
     ChatModule,
     IngestModule,

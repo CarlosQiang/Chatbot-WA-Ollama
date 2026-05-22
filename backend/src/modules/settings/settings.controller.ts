@@ -8,12 +8,18 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
+  AI_PROVIDERS,
+  AiProvider,
   BOT_MODES,
   BOT_MODE_DESCRIPTIONS,
   BotMode,
   SettingsService,
 } from './settings.service';
 import { OllamaService } from '../ollama/ollama.service';
+import { AiService } from '../ai/ai.service';
+import { NotesService } from '../notes/notes.service';
+import { ReminderService } from '../reminder/reminder.service';
+import { ChatService } from '../chat/chat.service';
 import {
   hostFromUrl,
   isLoopbackHost,
@@ -28,6 +34,7 @@ export class SettingsController {
   constructor(
     private readonly settings: SettingsService,
     private readonly ollama: OllamaService,
+    private readonly ai: AiService,
   ) {}
 
   @Get()
@@ -267,6 +274,133 @@ export class SettingsController {
     }
 
     return this.settings.setAutoReply(!!body?.enabled, normalized, 'dashboard');
+  }
+
+  // ─── Proveedor IA (Ollama | OpenAI) ───────────────────────
+  @Get('ai')
+  async getAi() {
+    const info = await this.ai.info();
+    return {
+      ...info,
+      availableProviders: AI_PROVIDERS,
+    };
+  }
+
+  @Put('ai')
+  async putAi(
+    @Body()
+    body: {
+      provider?: string;
+      temperature?: number | string;
+      openaiApiKey?: string;
+      openaiBaseUrl?: string;
+      openaiModel?: string;
+    },
+  ) {
+    if (body.provider !== undefined) {
+      const p = (body.provider || '').toLowerCase() as AiProvider;
+      if (!AI_PROVIDERS.includes(p)) {
+        throw new BadRequestException(
+          `Proveedor invalido. Validos: ${AI_PROVIDERS.join(', ')}`,
+        );
+      }
+      await this.settings.setAiProvider(p, 'dashboard');
+    }
+    if (body.temperature !== undefined) {
+      const t = typeof body.temperature === 'string'
+        ? parseFloat(body.temperature)
+        : body.temperature;
+      if (isNaN(t) || t < 0 || t > 2) {
+        throw new BadRequestException('Temperatura debe ser un número entre 0 y 2.');
+      }
+      await this.settings.setAiTemperature(t, 'dashboard');
+    }
+    if (body.openaiApiKey !== undefined) {
+      await this.settings.setOpenAiApiKey(body.openaiApiKey, 'dashboard');
+    }
+    if (body.openaiBaseUrl !== undefined) {
+      const u = (body.openaiBaseUrl || '').trim();
+      if (u && !/^https?:\/\//i.test(u)) {
+        throw new BadRequestException('OpenAI Base URL debe empezar por http:// o https://');
+      }
+      await this.settings.setOpenAiBaseUrl(u, 'dashboard');
+    }
+    if (body.openaiModel !== undefined) {
+      await this.settings.setOpenAiModel(body.openaiModel, 'dashboard');
+    }
+    return this.getAi();
+  }
+
+  @Post('ai/test-openai')
+  async testOpenAi(@Body() body: { baseUrl?: string; apiKey?: string }) {
+    return this.ai.testOpenAi({
+      baseUrl: body?.baseUrl,
+      apiKey: body?.apiKey,
+    });
+  }
+
+  // ─── Prompts personalizables (notas y recordatorios) ─────
+  @Get('prompts')
+  async getPrompts() {
+    const notes = await this.settings.getNotesPrompt();
+    const reminders = await this.settings.getRemindersPrompt();
+    const aiFallback = await this.settings.getRemindersAiFallback();
+    return {
+      notes,
+      reminders,
+      remindersAiFallback: aiFallback,
+      defaults: {
+        notes: NotesService.DEFAULT_NOTES_PROMPT,
+        reminders: ReminderService.DEFAULT_REMINDERS_PROMPT,
+      },
+    };
+  }
+
+  @Put('prompts')
+  async putPrompts(
+    @Body()
+    body: {
+      notes?: string;
+      reminders?: string;
+      remindersAiFallback?: boolean;
+    },
+  ) {
+    if (body.notes !== undefined) {
+      await this.settings.setNotesPrompt(body.notes, 'dashboard');
+    }
+    if (body.reminders !== undefined) {
+      await this.settings.setRemindersPrompt(body.reminders, 'dashboard');
+    }
+    if (body.remindersAiFallback !== undefined) {
+      await this.settings.setRemindersAiFallback(
+        !!body.remindersAiFallback,
+        'dashboard',
+      );
+    }
+    return this.getPrompts();
+  }
+
+  // ─── Auto-IA: prompt + persona ────────────────────────────
+  @Get('auto-reply/prompt')
+  async getAutoReplyPrompt() {
+    return {
+      prompt: await this.settings.getAutoReplyPrompt(),
+      persona: await this.settings.getAutoReplyPersona(),
+      default: ChatService.DEFAULT_AUTO_REPLY_PROMPT,
+    };
+  }
+
+  @Put('auto-reply/prompt')
+  async putAutoReplyPrompt(
+    @Body() body: { prompt?: string; persona?: string },
+  ) {
+    if (body.prompt !== undefined) {
+      await this.settings.setAutoReplyPrompt(body.prompt, 'dashboard');
+    }
+    if (body.persona !== undefined) {
+      await this.settings.setAutoReplyPersona(body.persona, 'dashboard');
+    }
+    return this.getAutoReplyPrompt();
   }
 
   @Post('ollama/test')

@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/loading';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { RefreshCw, Save, Plug, Phone, Shield, Plus, X } from 'lucide-react';
+import { AiProviderSection, CustomPromptsSection } from './settings-ai-section';
 
 const isValidUrl = (s: string) => /^https?:\/\/\S+/i.test(s);
 
@@ -296,6 +297,12 @@ export function SettingsView() {
           </div>
         </div>
       </Card>
+
+      {/* ── PROVEEDOR IA (Ollama | OpenAI) ──────────────── */}
+      <AiProviderSection />
+
+      {/* ── PROMPTS PERSONALIZABLES ─────────────────────── */}
+      <CustomPromptsSection />
 
       {/* ── OLLAMA ───────────────────────────────────────── */}
       <Card

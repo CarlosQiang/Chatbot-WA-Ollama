@@ -7,6 +7,7 @@ type View =
   | 'commands'
   | 'models'
   | 'connections'
+  | 'whatsapp'
   | 'telegram'
   | 'reminders'
   | 'notes'

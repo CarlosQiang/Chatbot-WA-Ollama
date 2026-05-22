@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/loading';
 import { motion } from 'framer-motion';
 import { StickyNote, Trash2, Sparkles, Plus, Wand2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { PromptEditor } from './prompt-editor';
 
 export function NotesView() {
   const qc = useQueryClient();
@@ -139,6 +140,12 @@ export function NotesView() {
           )}
         </div>
       </Card>
+
+      <PromptEditor
+        field="notes"
+        title="Prompt personalizado para organizar notas"
+        description="Vacío = se usa el prompt por defecto (corrección suave, sin reinterpretar). Si lo personalizas, asegúrate de decirle al modelo que use negritas WhatsApp con UN solo asterisco (*así*), nunca con dos (**no**)."
+      />
 
       <Card title={`Notas guardadas (${list.data?.length || 0})`}>
         {list.isLoading ? (

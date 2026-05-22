@@ -4,6 +4,7 @@ import { useAppStore } from '@/store/app-store';
 import {
   LayoutDashboard,
   MessageSquare,
+  MessageCircle,
   Cpu,
   ScrollText,
   Settings,
@@ -21,6 +22,7 @@ const items = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { key: 'chats', label: 'Chats', icon: MessageSquare },
   { key: 'commands', label: 'Comandos', icon: Terminal },
+  { key: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
   { key: 'telegram', label: 'Telegram', icon: Send },
   { key: 'reminders', label: 'Recordatorios', icon: Bell },
   { key: 'notes', label: 'Notas', icon: StickyNote },

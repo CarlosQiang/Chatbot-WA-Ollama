@@ -10,16 +10,21 @@ Aplicación de chat WhatsApp ↔ IA pensada para correr 100% en tu LAN sobre Doc
 
 ## Características
 
-- 🟢 Chat WhatsApp ↔ Ollama con contexto persistente por chat
-- 🧠 Multi-modelo (`llama3.2:1b`, `mistral`, `qwen2.5`...) cambiable al vuelo
+- 🟢 Chat WhatsApp ↔ IA con contexto persistente por chat
+- 🧠 Multi-modelo (`llama3.2:1b`, `mistral`, `qwen2.5`, GPT-4o…) cambiable al vuelo
+- 🔌 **Proveedor IA intercambiable**: Ollama local **o** OpenAI / OpenRouter / Groq / Together AI (compatible OpenAI API)
 - 🌐 Ollama dinámico: apunta a cualquier IP de tu LAN desde el dashboard
-- 🛡️ Whitelist de chats: limita qué números pueden usar el bot
+- ✍️ **Prompts personalizables** desde la UI: cómo se organizan las notas y cómo se interpretan los recordatorios
+- 📝 Notas inteligentes: por defecto solo corrige ortografía + formato suave (no reinterpreta)
+- ⏰ Recordatorios en lenguaje natural: "mañana a las 7 avísame de llamar al médico", "el viernes recuérdame comprar cables"
+- 🛡️ Whitelist de chats con normalizador (acepta `612345678`, `+34612345678`, `34 612 345 678`)
 - 🛠️ Comandos slash: `/estado`, `/modelos`, `/modelo`, `/reset`, `/ram`, etc.
 - 📊 Dashboard premium oscuro: chats en vivo, logs, métricas, modelos, comandos
 - 🔘 Botones de test: prueba WhatsApp y Ollama en un click
 - 🔄 Polling + webhook: funciona aunque OpenWA filtre self-chats
 - 🐳 100% Dockerizado con healthchecks y volúmenes persistentes
 - 🚫 Sin colisiones: puertos personalizados, no toca otros stacks
+- ⚙️ **Todo configurable desde el panel** — no hace falta tocar código ni `.env` después del primer arranque
 
 ## Stack
 
@@ -84,6 +89,26 @@ Cualquier mensaje sin `/` se envía a Ollama y responde como IA.
 | `ALLOWED_CHAT_IDS` | Whitelist (vacío = todos) | `.env` o UI |
 
 Formato chatId: `34670209033@c.us` (sin `+`).
+
+## Proveedor IA: Ollama o OpenAI
+
+Todo configurable desde **Dashboard → Ajustes → Proveedor IA**, sin tocar `.env`.
+
+| Proveedor | Cuándo | Cómo |
+|-----------|--------|------|
+| **Ollama** (default) | Modelos locales, privado, sin coste por consulta | URL + modelo |
+| **OpenAI / compatible** | GPT-4o, GPT-4o-mini… o cualquier proveedor compatible (OpenRouter, Groq, Together AI) | API key + base URL + modelo |
+
+Cambiar de uno a otro es 1 click en la UI. La clave se guarda cifrada en la base de datos del backend, nunca se devuelve por la API.
+
+## Prompts personalizados
+
+Desde **Dashboard → Ajustes → Prompts personalizados** puedes sobrescribir:
+
+- **Prompt de notas** — cómo la IA organiza el texto cuando mandas algo largo desde Telegram. Por defecto solo corrige ortografía y mejora el formato sin reinterpretar.
+- **Prompt de recordatorios** — cómo la IA convierte frases tipo "mañana a las 7 avísame del médico" en `fireAt` + `text`. Solo se usa como fallback cuando el parser estándar no entiende la frase.
+
+Vacíos = se usan los prompts por defecto (suaves, no agresivos).
 
 ## Ollama remoto
 

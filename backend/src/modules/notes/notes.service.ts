@@ -5,6 +5,7 @@ import { OpenWaService } from '../openwa/openwa.service';
 import { SettingsService } from '../settings/settings.service';
 import { LogsService } from '../logs/logs.service';
 import { ChatService } from '../chat/chat.service';
+import { AiService } from '../ai/ai.service';
 
 export type NoteSource = 'whatsapp' | 'telegram' | 'dashboard';
 
@@ -19,6 +20,7 @@ export class NotesService {
     private readonly settings: SettingsService,
     private readonly logs: LogsService,
     private readonly chat: ChatService,
+    private readonly ai: AiService,
   ) {}
 
   async create(data: {
@@ -70,45 +72,78 @@ export class NotesService {
   }
 
   /**
-   * Prompt para que Ollama devuelva una nota estructurada, lista para
-   * enviar a WhatsApp. Usa negritas WhatsApp (asterisco simple `*texto*`),
-   * NO Markdown (`**texto**` no se interpreta en WhatsApp).
+   * Prompt por DEFECTO para limpiar notas — diseñado para tocar lo MÍNIMO:
+   *  - Solo corrige ortografía, acentos y puntuación obvia.
+   *  - Solo da un mínimo de orden visual.
+   *  - NO resume, NO reinterpreta, NO inventa, NO añade preámbulo.
+   *  - Mantiene casi palabra por palabra lo que dijo el usuario.
+   *
+   * Si el usuario quiere otro comportamiento, puede sobrescribir este
+   * prompt desde el dashboard (Ajustes → Prompts → Notas). Si la setting
+   * `notesPrompt` está vacía, se usa este prompt.
    */
-  private static readonly ORGANIZE_SYSTEM_PROMPT = [
-    'Eres un asistente que reorganiza ideas dispersas en notas claras y útiles.',
-    'Dada una idea, mensaje largo o conjunto de pensamientos del usuario, devuelve una nota lista para leer en WhatsApp.',
+  static readonly DEFAULT_NOTES_PROMPT = [
+    'Eres un corrector ortográfico para WhatsApp. Tu única tarea es devolver el MISMO texto del usuario, prácticamente igual, con los siguientes cambios MÍNIMOS:',
     '',
-    'REGLAS DE FORMATO (obligatorias):',
-    '- Idioma: español. Tono claro, conciso, directo.',
-    '- Primera línea: título en negrita WhatsApp con UN solo asterisco: *Título corto*',
-    '- Después un breve resumen (1-2 frases).',
-    '- Luego secciones con título corto seguido de líneas con guion: "- punto importante".',
+    'OBLIGATORIO:',
+    '- Corrige faltas de ortografía, tildes y puntuación obvia.',
+    '- Pon una mayúscula al inicio de cada frase.',
+    '- Si el texto es una lista de cosas separadas por comas o saltos de línea, ponla en líneas con guion "- ".',
+    '- Si tiene una idea principal clara al principio, pon esa primera frase en negrita WhatsApp (UN solo asterisco: *así*).',
     '- Usa negritas WhatsApp con UN asterisco (*así*), NUNCA con dos (**no**) ni con _underscore_.',
-    '- Sin emojis decorativos salvo que ayuden a estructura (•, →).',
-    '- Máximo 250 palabras. Conciso, sin "idas mentales".',
-    '- No inventes información. Mantén la intención del usuario.',
-    '- NO añadas preámbulo tipo "Aquí tienes la nota organizada". Devuelve solo la nota.',
+    '',
+    'PROHIBIDO (muy importante):',
+    '- NO resumir, NO acortar, NO reinterpretar, NO reordenar las ideas.',
+    '- NO añadir información que el usuario no haya escrito.',
+    '- NO añadir títulos genéricos tipo "Nota", "Resumen", "Tareas", etc., si el usuario no los puso.',
+    '- NO añadir emojis decorativos.',
+    '- NO añadir preámbulo ("Aquí tienes...", "Claro,...", "He organizado...").',
+    '- NO eliminar palabras del usuario aunque te parezcan redundantes.',
+    '',
+    'Devuelve SOLO el texto corregido, listo para enviar a WhatsApp.',
   ].join('\n');
 
   /**
-   * Usa Ollama para organizar/limpiar el texto de la nota.
-   * Devuelve la version organizada y la guarda en `organized`.
+   * Devuelve el prompt activo: setting `notesPrompt` si está rellena, si no
+   * el DEFAULT_NOTES_PROMPT (corrección suave).
+   */
+  private async getActivePrompt(): Promise<string> {
+    const custom = await this.settings.getNotesPrompt();
+    return custom || NotesService.DEFAULT_NOTES_PROMPT;
+  }
+
+  /**
+   * Limpia/organiza el texto de la nota. Por defecto toca poco — solo
+   * ortografía y formato suave. Usa el proveedor IA activo (Ollama u
+   * OpenAI) a través de AiService. Guarda el resultado en `organized`.
    */
   async organize(noteOrText: string | { id: string; text: string }): Promise<string> {
     const isString = typeof noteOrText === 'string';
     const text = isString ? noteOrText : noteOrText.text;
-
-    const model = await this.settings.getActiveModel();
+    const promptSystem = await this.getActivePrompt();
 
     try {
-      const organized = await this.ollama.chat(model, [
-        { role: 'system', content: NotesService.ORGANIZE_SYSTEM_PROMPT },
-        { role: 'user', content: text },
-      ]);
+      const organized = await this.ai.complete(promptSystem, text);
       let final = (organized || '').trim();
 
       // Defensa: si el modelo devolvió ** (Markdown), convertir a * (WhatsApp).
       final = final.replace(/\*\*(.+?)\*\*/g, '*$1*');
+
+      // Defensa extra: si el modelo devolvió algo MUY corto en comparación al
+      // texto original, probablemente resumió demasiado → usamos el texto
+      // original sin tocar y dejamos un aviso en logs. Así no perdemos info.
+      if (
+        final.length > 0 &&
+        text.length > 80 &&
+        final.length < Math.floor(text.length * 0.5)
+      ) {
+        await this.logs.write(
+          'warn',
+          'system',
+          `organize note: salida muy corta (${final.length} vs original ${text.length}). Devuelvo original.`,
+        );
+        final = text;
+      }
 
       // Si veníamos con id, persistimos.
       if (!isString && noteOrText.id) {

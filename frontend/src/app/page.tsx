@@ -7,6 +7,7 @@ import { ChatsView } from '@/components/views/chats-view';
 import { ModelsView } from '@/components/views/models-view';
 import { ConnectionsView } from '@/components/views/connections-view';
 import { CommandsView } from '@/components/views/commands-view';
+import { WhatsappView } from '@/components/views/whatsapp-view';
 import { TelegramView } from '@/components/views/telegram-view';
 import { RemindersView } from '@/components/views/reminders-view';
 import { NotesView } from '@/components/views/notes-view';
@@ -37,6 +38,7 @@ export default function HomePage() {
               {view === 'models' && <ModelsView />}
               {view === 'connections' && <ConnectionsView />}
               {view === 'commands' && <CommandsView />}
+              {view === 'whatsapp' && <WhatsappView />}
               {view === 'telegram' && <TelegramView />}
               {view === 'reminders' && <RemindersView />}
               {view === 'notes' && <NotesView />}

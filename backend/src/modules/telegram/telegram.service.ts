@@ -393,14 +393,31 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
       case '/recordar': {
         try {
-          const r: any = await this.reminder.parseAndCreate(args, {
+          // Limpieza ligera: si el usuario escribió "/recordar recuérdame X"
+          // o "/recordar que X", quitamos la palabra redundante para que
+          // parseAndCreate trabaje sobre la frase pura.
+          const cleaned = args
+            .replace(/^recu[ée]rdame(?:\s+que)?\s+/i, '')
+            .replace(/^(?:que|de)\s+/i, '')
+            .trim();
+          const r: any = await this.reminder.parseAndCreate(cleaned || args, {
             createdBy: `tg:${userId}`,
             telegramChatId: String(chatId),
             defaultTarget: 'whatsapp',
           });
           const tz = await this.settings.getReminderTz();
           return this.sendMessage(chatId, this.reminder.formatConfirmation(r, tz));
-        } catch (e: any) { return this.sendMessage(chatId, `Error: ${e.message}`); }
+        } catch (e: any) {
+          return this.sendMessage(
+            chatId,
+            `❌ ${e.message}\n\n` +
+              '*Ejemplos que sí funcionan:*\n' +
+              '· `/recordar en una hora hacer el trabajo de Florence`\n' +
+              '· `/recordar mañana a las 7 llamar al medico`\n' +
+              '· `/recordar el viernes comprar cables`\n' +
+              '· `/recordar cada lunes a las 8 sacar basura`',
+          );
+        }
       }
       case '/recordatorios': {
         const list = await this.reminder.list();

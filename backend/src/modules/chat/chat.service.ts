@@ -103,7 +103,22 @@ export class ChatService {
     return { ok: true };
   }
 
-  async generateAndReply(chatId: string) {
+  /**
+   * Prompt por defecto para Auto-IA — el bot responde "como el usuario"
+   * a los contactos autorizados. Si el usuario rellena su prompt
+   * personalizado o su persona en Ajustes/Auto-IA, se inyectan encima.
+   */
+  static readonly DEFAULT_AUTO_REPLY_PROMPT = [
+    'Estás respondiendo por WhatsApp a otra persona EN NOMBRE DEL USUARIO (su dueño).',
+    'Habla en primera persona como si fueras él, no como asistente.',
+    'Tono natural de chat: frases cortas, directas, sin estructura tipo email.',
+    'Usa abreviaturas y minúsculas si el usuario las usa (ej: "q", "x", "pq", "tb").',
+    'No saludes en cada mensaje. No te despidas. Continúa la conversación.',
+    'Si no sabes algo concreto, di que "luego te confirmo" o similar.',
+    'Nunca digas que eres una IA o un asistente automático.',
+  ].join('\n');
+
+  async generateAndReply(chatId: string, opts: { isAutoReply?: boolean } = {}) {
     const lockKey = `wa:reply-lock:${chatId}`;
     const gotLock = await this.redis.client
       .set(lockKey, '1', 'EX', 60, 'NX')
@@ -116,7 +131,20 @@ export class ChatService {
 
     try {
       const model = await this.settings.getActiveModel();
-      const systemPrompt = await this.settings.getSystemPrompt();
+      let systemPrompt = await this.settings.getSystemPrompt();
+
+      // Si es Auto-IA, sobrescribimos/aumentamos el system prompt para que
+      // la IA hable como el usuario, con su persona y abreviaturas.
+      if (opts.isAutoReply) {
+        const customPrompt = await this.settings.getAutoReplyPrompt();
+        const persona = await this.settings.getAutoReplyPersona();
+        const basePrompt =
+          customPrompt || ChatService.DEFAULT_AUTO_REPLY_PROMPT;
+        systemPrompt = persona
+          ? `${basePrompt}\n\nINFORMACIÓN SOBRE EL USUARIO (úsala para responder con coherencia):\n${persona}`
+          : basePrompt;
+      }
+
       const history = await this.getContext(chatId);
 
       const messages: ChatMessage[] = [
@@ -188,7 +216,10 @@ export class ChatService {
 
     await this.ensureChat(chatId, opts.displayName);
     await this.saveMessage({ chatId, direction: 'in', role: 'user', body: text });
-    return this.generateAndReply(chatId);
+    // Si este chat está en la lista de Auto-IA, propagamos el flag para
+    // que generateAndReply aplique el system prompt de persona.
+    const isAutoReply = await this.settings.isAutoReply(chatId).catch(() => false);
+    return this.generateAndReply(chatId, { isAutoReply });
   }
 
   async listChats() {

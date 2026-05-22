@@ -5,6 +5,7 @@ import { OpenWaService } from '../openwa/openwa.service';
 import { SettingsService } from '../settings/settings.service';
 import { LogsService } from '../logs/logs.service';
 import { ChatService } from '../chat/chat.service';
+import { AiService } from '../ai/ai.service';
 import { normalizeChatId } from '../../common/validators';
 
 export type CreateContext = {
@@ -66,7 +67,36 @@ export class ReminderService {
     private readonly settings: SettingsService,
     private readonly logs: LogsService,
     private readonly chat: ChatService,
+    private readonly ai: AiService,
   ) {}
+
+  /**
+   * Prompt por defecto para el fallback IA del parser de recordatorios.
+   * Si el usuario quiere cambiarlo, puede sobrescribirlo desde
+   * Ajustes → Prompts → Recordatorios (setting `remindersPrompt`).
+   */
+  static readonly DEFAULT_REMINDERS_PROMPT = [
+    'Eres un parser de recordatorios. Recibes una frase en español en lenguaje natural y devuelves SOLO un JSON con esta estructura exacta:',
+    '',
+    '{',
+    '  "text": "<descripción corta del recordatorio>",',
+    '  "when": "<ISO 8601 o expresión cron>",',
+    '  "type": "once" | "cron"',
+    '}',
+    '',
+    'REGLAS:',
+    '- Si es un evento único: type="once" y `when` es una fecha ISO 8601 completa (YYYY-MM-DDTHH:mm:ss) en la zona horaria que te indico.',
+    '- Si es recurrente: type="cron" y `when` es una expresión cron de 5 campos: "min hora dia mes dow".',
+    '- `text` debe ser la acción a recordar SIN frases tipo "recuérdame que" o "avísame de".',
+    '- Si no entiendes la frase, devuelve {"error":"motivo"}.',
+    '- NO añadas texto antes ni después del JSON. NO uses markdown. Devuelve SOLO JSON válido.',
+    '',
+    'EJEMPLOS:',
+    '- "recuerdame en una hora que tengo que tirar la basura" -> {"text":"tirar la basura","when":"<ISO ahora+1h>","type":"once"}',
+    '- "mañana a las 7 avisame de llamar al medico" -> {"text":"llamar al medico","when":"<ISO mañana 07:00>","type":"once"}',
+    '- "el viernes recuerdame comprar cables" -> {"text":"comprar cables","when":"<ISO próximo viernes 09:00>","type":"once"}',
+    '- "cada lunes a las 8 sacar basura" -> {"text":"sacar basura","when":"0 8 * * 1","type":"cron"}',
+  ].join('\n');
 
   setTelegramSender(fn: (chatId: string | number, text: string) => Promise<any>) {
     this.telegramSender = fn;
@@ -203,6 +233,32 @@ export class ReminderService {
     out = out.replace(/\bmediod[ií]a\b/gi, '12:00');
     out = out.replace(/\bmedianoche\b/gi, '00:00');
 
+    // ── "en una hora", "en dos minutos", "en media hora", "en un cuarto de hora", "en un par de horas" ──
+    // Convertimos a la forma numérica "en N <unidad>" que entiende tryRelative().
+    const numMap: Record<string, number> = {
+      un: 1, una: 1, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5,
+      seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12,
+      quince: 15, veinte: 20, treinta: 30, cuarenta: 40, cincuenta: 50,
+    };
+
+    // Casos especiales primero: "media hora", "un cuarto de hora", "un par de horas/dias/minutos"
+    out = out.replace(/\ben\s+media\s+hora\b/gi, 'en 30 minutos');
+    out = out.replace(/\ben\s+un\s+cuarto\s+de\s+hora\b/gi, 'en 15 minutos');
+    out = out.replace(
+      /\ben\s+un\s+par\s+de\s+(segundos?|minutos?|mins?|horas?|h|d[ií]as?|d|semanas?|sem)\b/gi,
+      (_m, unit) => `en 2 ${unit}`,
+    );
+
+    // Patrón general: "en <palabra-número> <unidad>"
+    out = out.replace(
+      /\ben\s+(\w+)\s+(segundo|segundos|minuto|minutos|min|mins|hora|horas|h|d[ií]a|d[ií]as|d|semana|semanas|sem)\b/gi,
+      (m, word, unit) => {
+        const v = numMap[(word || '').toLowerCase()];
+        if (v === undefined) return m;
+        return `en ${v} ${unit}`;
+      },
+    );
+
     // Patron 1: "a las <NUM> y <MIN> (de la <franja>)?"
     // Ej: "a las nueve y media de la tarde" -> "a las 21:30"
     const re1 = /\b(?:a\s+las?\s+)?(\w+)(?:\s+y\s+(\w+))?(?:\s+de\s+la\s+(ma[ñn]ana|tarde|noche|madrugada))?\b/gi;
@@ -275,7 +331,7 @@ export class ReminderService {
     const target: 'whatsapp' = 'whatsapp';
     const targetChatId = await this.resolveWaTarget(ctx.whatsappChatId);
 
-    const parsed: { text: string; fireAt?: Date; cronExpression?: string } | null =
+    let parsed: { text: string; fireAt?: Date; cronExpression?: string } | null =
       this.tryRecurring(raw) ||
       this.tryRelative(raw) ||
       this.tryHoyManana(raw, tz) ||
@@ -283,6 +339,26 @@ export class ReminderService {
       this.tryDateLong(raw, tz) ||
       this.tryDateNumeric(raw, tz) ||
       this.tryBareTime(raw, tz);
+
+    // Si ningún regex acierta, probamos con la IA como fallback (si está
+    // activado en Settings, por defecto sí). Esto cubre frases tipo:
+    //   "recuerdame en una hora que tengo que tirar la basura"
+    //   "manana a las 7 avisame de llamar al medico"
+    //   "el viernes recuerdame comprar cables"
+    if (!parsed) {
+      const aiFallbackEnabled = await this.settings.getRemindersAiFallback();
+      if (aiFallbackEnabled) {
+        try {
+          parsed = await this.tryAiParse(raw, tz);
+        } catch (e: any) {
+          await this.logs.write(
+            'warn',
+            'system',
+            `reminder AI fallback fallo: ${e.message}`,
+          );
+        }
+      }
+    }
 
     if (!parsed) throw new BadRequestException(this.helpText());
 
@@ -534,6 +610,73 @@ export class ReminderService {
     if (isNaN(hh) || isNaN(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) {
       throw new BadRequestException(`Hora invalida ${hh}:${mm}. Formato 24h.`);
     }
+  }
+
+  /**
+   * Fallback con IA cuando los regex no entienden la frase. Le da a la
+   * IA el `now` y la zona horaria del usuario, le pide JSON estricto, y
+   * valida la respuesta antes de devolverla.
+   *
+   * Es defensivo a propósito: si la IA devuelve algo raro, retorna null
+   * (no tira excepción) — el caller verá "Formato no reconocido" como antes.
+   */
+  private async tryAiParse(
+    raw: string,
+    tz: string,
+  ): Promise<{ text: string; fireAt?: Date; cronExpression?: string } | null> {
+    const customPrompt = await this.settings.getRemindersPrompt();
+    const basePrompt = customPrompt || ReminderService.DEFAULT_REMINDERS_PROMPT;
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const localNow = new Intl.DateTimeFormat('es-ES', {
+      timeZone: tz,
+      dateStyle: 'full',
+      timeStyle: 'medium',
+    }).format(now);
+
+    const systemPrompt =
+      basePrompt +
+      `\n\nCONTEXTO ACTUAL:\n- Zona horaria del usuario: ${tz}\n- Ahora mismo: ${localNow}\n- ISO actual: ${nowIso}\n- Si la frase no especifica hora, usa las 09:00 locales.`;
+
+    let response: string;
+    try {
+      response = await this.ai.complete(systemPrompt, raw);
+    } catch (e: any) {
+      this.logger.warn(`AI parse fallo: ${e.message}`);
+      return null;
+    }
+
+    // Extraemos el primer bloque JSON razonable. Algunos modelos meten
+    // texto alrededor; lo trimamos.
+    const jsonStart = response.indexOf('{');
+    const jsonEnd = response.lastIndexOf('}');
+    if (jsonStart < 0 || jsonEnd <= jsonStart) return null;
+    const jsonRaw = response.slice(jsonStart, jsonEnd + 1);
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(jsonRaw);
+    } catch {
+      return null;
+    }
+    if (!parsed || parsed.error || !parsed.text || !parsed.when) return null;
+
+    const text = String(parsed.text).trim();
+    if (!text) return null;
+
+    if (parsed.type === 'cron' || /^[\d*\/, -]+\s+[\d*\/, -]+\s/.test(String(parsed.when))) {
+      const cron = String(parsed.when).trim();
+      const parts = cron.split(/\s+/);
+      if (parts.length !== 5) return null;
+      return { text, cronExpression: cron };
+    }
+
+    // ISO 8601
+    const iso = String(parsed.when).trim();
+    const date = new Date(iso);
+    if (isNaN(date.getTime())) return null;
+    if (date.getTime() <= Date.now() - 60_000) return null; // ya pasó
+    return { text, fireAt: date };
   }
 
   private cronHuman(expr: string): string {

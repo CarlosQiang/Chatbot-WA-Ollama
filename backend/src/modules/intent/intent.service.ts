@@ -69,7 +69,11 @@ export class IntentService {
           intent: 'reminder',
           reply:
             `No pude crear el recordatorio: ${e.message || 'error'}\n\n` +
-            'Prueba con: "recuerdame hoy a las 18:00 revisar Docker" o "ponme un recordatorio para el viernes a las 21:00 backup"',
+            'Ejemplos que funcionan:\n' +
+            '· _recuérdame en una hora hacer el trabajo de Florence_\n' +
+            '· _recuérdame mañana a las 7 llamar al médico_\n' +
+            '· _ponme un recordatorio para el viernes a las 21:00 backup_\n\n' +
+            'Si la frase es muy rara y la IA no la entiende, prueba a reformularla en un formato más estándar (hora, día, fecha).',
         };
       }
     }

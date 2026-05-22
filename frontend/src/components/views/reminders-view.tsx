@@ -9,6 +9,7 @@ import { EmptyState } from '@/components/ui/states';
 import { motion } from 'framer-motion';
 import { Plus, Trash2, Bell } from 'lucide-react';
 import { toast } from 'sonner';
+import { PromptEditor } from './prompt-editor';
 
 export function RemindersView() {
   const qc = useQueryClient();
@@ -70,6 +71,12 @@ export function RemindersView() {
           </div>
         </div>
       </Card>
+
+      <PromptEditor
+        field="reminders"
+        title="Prompt personalizado para entender recordatorios"
+        description="Solo se usa como fallback IA cuando el parser estándar (regex) no entiende una frase como 'mañana a las 7 avísame del médico'. El modelo debe devolver JSON estricto con {text, when, type}. Vacío = prompt por defecto."
+      />
 
       <Card title={`Recordatorios activos${data?.tz ? ` (${data.tz})` : ''}`}>
         {isLoading ? (

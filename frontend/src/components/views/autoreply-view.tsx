@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/loading';
 import { motion } from 'framer-motion';
-import { Save, Sparkles, Plus, X } from 'lucide-react';
+import { Save, Sparkles, Plus, X, Wand2, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -233,6 +233,8 @@ export function AutoReplyView() {
         )}
       </Card>
 
+      <AutoReplyPromptSection />
+
       <Card title="¿Cómo funciona?">
         <ol className="text-sm text-fg-muted space-y-2 list-decimal list-inside leading-relaxed">
           <li>Un contacto de la lista te escribe al WhatsApp del bot.</li>
@@ -248,5 +250,120 @@ export function AutoReplyView() {
         </div>
       </Card>
     </motion.div>
+  );
+}
+
+/**
+ * Configuración del prompt + persona usados por Auto-IA cuando responde
+ * a contactos autorizados. El prompt define el COMPORTAMIENTO (tono,
+ * abreviaturas), la persona da CONTEXTO PERSONAL (forma de hablar,
+ * gustos, datos relevantes).
+ */
+function AutoReplyPromptSection() {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ['autoReplyPrompt'],
+    queryFn: apiClient.getAutoReplyPrompt,
+  });
+
+  const [prompt, setPrompt] = useState('');
+  const [persona, setPersona] = useState('');
+
+  useEffect(() => {
+    if (data) {
+      setPrompt(data.prompt || '');
+      setPersona(data.persona || '');
+    }
+  }, [data]);
+
+  const save = useMutation({
+    mutationFn: () => apiClient.saveAutoReplyPrompt({ prompt, persona }),
+    onSuccess: () => {
+      toast.success('Prompt y persona de Auto-IA guardados');
+      qc.invalidateQueries({ queryKey: ['autoReplyPrompt'] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || e.message),
+  });
+
+  const isCustomPrompt = !!prompt.trim();
+
+  return (
+    <Card
+      title={
+        <span className="flex items-center gap-2">
+          <Wand2 size={13} /> Cómo debe responder Auto-IA
+          {isCustomPrompt && (
+            <span className="text-[10px] uppercase tracking-wider text-accent bg-accent/10 px-1.5 py-0.5 rounded">
+              personalizado
+            </span>
+          )}
+        </span>
+      }
+    >
+      <div className="space-y-5">
+        {/* Persona del usuario */}
+        <div>
+          <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 flex items-center gap-1.5">
+            <User size={11} /> Sobre ti — info para que la IA responda como tú
+          </label>
+          <textarea
+            value={persona}
+            onChange={(e) => setPersona(e.target.value)}
+            rows={5}
+            placeholder={`Ej:\nMe llamo Carlos. Trabajo en informática. Vivo en Madrid.\nHablo en plan corto, uso "q" en vez de "que", "x" por "por", "tb" por "también".\nNo uso mayúsculas en frases normales.\nMi novia se llama Florence. Tengo un proyecto con un servidor llamado Local AI Hub.\nSi me preguntan algo personal, contesta como si fuera yo, sin inventar datos.`}
+            className="w-full bg-bg-subtle/60 border border-border rounded-md p-3 text-sm font-mono focus:outline-none focus:border-border-strong"
+          />
+          <div className="text-[11px] text-fg-subtle mt-1">
+            Toda la información que pongas aquí se inyecta en cada respuesta de Auto-IA
+            para que la IA hable contigo encima y sepa quién eres. Cuanta más info útil,
+            mejor responde por ti.
+          </div>
+        </div>
+
+        {/* Prompt de comportamiento */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-[10px] uppercase tracking-wider text-fg-subtle">
+              Prompt de comportamiento (avanzado, opcional)
+            </label>
+            {isCustomPrompt && (
+              <button
+                onClick={() => setPrompt('')}
+                className="text-[10px] text-fg-muted hover:text-fg underline"
+              >
+                Volver al prompt por defecto
+              </button>
+            )}
+          </div>
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            rows={6}
+            placeholder={data?.default || 'Vacío = se usa el prompt por defecto'}
+            className="w-full bg-bg-subtle/60 border border-border rounded-md p-3 text-sm font-mono focus:outline-none focus:border-border-strong"
+          />
+          <div className="text-[11px] text-fg-subtle mt-1">
+            Vacío = se usa el prompt por defecto (tono natural, frases cortas, sin saludo).
+            Si lo personalizas, recuerda que la "info sobre ti" se añade automáticamente debajo.
+          </div>
+          {data?.default && !isCustomPrompt && (
+            <button
+              onClick={() => setPrompt(data.default)}
+              className="text-[11px] text-accent hover:underline mt-1"
+            >
+              Cargar prompt por defecto en el editor para modificarlo
+            </button>
+          )}
+        </div>
+
+        <div className="flex justify-end">
+          <Button variant="primary" onClick={() => save.mutate()} disabled={save.isPending}>
+            <Save size={12} /> Guardar prompt + persona
+          </Button>
+        </div>
+
+        {isLoading && <Skeleton className="h-4 w-32" />}
+      </div>
+    </Card>
   );
 }
