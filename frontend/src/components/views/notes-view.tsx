@@ -143,8 +143,9 @@ export function NotesView() {
 
       <PromptEditor
         field="notes"
-        title="Prompt personalizado para organizar notas"
-        description="Vacío = se usa el prompt por defecto (corrección suave, sin reinterpretar). Si lo personalizas, asegúrate de decirle al modelo que use negritas WhatsApp con UN solo asterisco (*así*), nunca con dos (**no**)."
+        title="Prompt activo para corregir y formatear notas"
+        description="Este es el prompt que recibe la IA cada vez que se organiza una nota. Por defecto está configurado para SOLO corregir faltas de ortografía y mantener tu texto lo más intacto posible. Edítalo si quieres cambiar el comportamiento. Si lo vacías, se restaura el prompt por defecto."
+        defaultCollapsed={false}
       />
 
       <Card title={`Notas guardadas (${list.data?.length || 0})`}>

@@ -74,8 +74,9 @@ export function RemindersView() {
 
       <PromptEditor
         field="reminders"
-        title="Prompt personalizado para entender recordatorios"
-        description="Solo se usa como fallback IA cuando el parser estándar (regex) no entiende una frase como 'mañana a las 7 avísame del médico'. El modelo debe devolver JSON estricto con {text, when, type}. Vacío = prompt por defecto."
+        title="Prompt activo para entender recordatorios en lenguaje natural"
+        description="Este prompt enseña a la IA a interpretar tus frases coloquiales y convertirlas en recordatorios. Por defecto entiende cosas como 'esta tarde', 'el finde', 'antes de cenar', 'en un rato', abreviaturas y faltas de ortografía. Edítalo si quieres añadir tus propias expresiones. Si lo vacías, se restaura el prompt por defecto."
+        defaultCollapsed={false}
       />
 
       <Card title={`Recordatorios activos${data?.tz ? ` (${data.tz})` : ''}`}>

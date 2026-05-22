@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OllamaService } from '../ollama/ollama.service';
 import { OpenWaService } from '../openwa/openwa.service';
@@ -10,8 +10,31 @@ import { AiService } from '../ai/ai.service';
 export type NoteSource = 'whatsapp' | 'telegram' | 'dashboard';
 
 @Injectable()
-export class NotesService {
+export class NotesService implements OnModuleInit {
   private readonly logger = new Logger(NotesService.name);
+
+  /**
+   * Al arrancar, si la setting `notesPrompt` está vacía la rellenamos con
+   * el DEFAULT_NOTES_PROMPT. Así el usuario ve el prompt ya activo en el
+   * dashboard la primera vez que abre Ajustes/Notas — puede editarlo o
+   * borrarlo (vaciar = vuelve al default automáticamente). Idempotente:
+   * solo escribe si está vacío, nunca sobrescribe lo que el usuario haya
+   * personalizado.
+   */
+  async onModuleInit() {
+    try {
+      const current = await this.settings.getNotesPrompt();
+      if (!current) {
+        await this.settings.setNotesPrompt(
+          NotesService.DEFAULT_NOTES_PROMPT,
+          'seed',
+        );
+        this.logger.log('Seed inicial de notesPrompt aplicado');
+      }
+    } catch (e: any) {
+      this.logger.warn(`Seed notesPrompt fallo: ${e.message}`);
+    }
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -83,24 +106,30 @@ export class NotesService {
    * `notesPrompt` está vacía, se usa este prompt.
    */
   static readonly DEFAULT_NOTES_PROMPT = [
-    'Eres un corrector ortográfico para WhatsApp. Tu única tarea es devolver el MISMO texto del usuario, prácticamente igual, con los siguientes cambios MÍNIMOS:',
+    'Eres un corrector ortográfico estricto para WhatsApp.',
+    'Tu ÚNICA tarea es devolver el MISMO texto del usuario con el MENOR número de cambios posibles.',
+    'Piensa en ti como un corrector ortográfico de móvil, NO como un editor ni como un asistente.',
     '',
-    'OBLIGATORIO:',
-    '- Corrige faltas de ortografía, tildes y puntuación obvia.',
-    '- Pon una mayúscula al inicio de cada frase.',
-    '- Si el texto es una lista de cosas separadas por comas o saltos de línea, ponla en líneas con guion "- ".',
-    '- Si tiene una idea principal clara al principio, pon esa primera frase en negrita WhatsApp (UN solo asterisco: *así*).',
-    '- Usa negritas WhatsApp con UN asterisco (*así*), NUNCA con dos (**no**) ni con _underscore_.',
+    'LO ÚNICO que estás autorizado a cambiar:',
+    '1. Faltas de ortografía y tildes (ej: "trabago" → "trabajo", "mañana" si falta la tilde).',
+    '2. Puntos y comas obvios que falten al final de frases.',
+    '3. Mayúscula inicial al empezar una frase y después de un punto.',
+    '4. Si el texto contiene una enumeración separada por comas o saltos de línea, ponla con guiones "- ".',
+    '5. Si hay una frase clara al inicio que actúa como título, ponla en negrita WhatsApp con UN solo asterisco (*así*).',
     '',
-    'PROHIBIDO (muy importante):',
-    '- NO resumir, NO acortar, NO reinterpretar, NO reordenar las ideas.',
-    '- NO añadir información que el usuario no haya escrito.',
-    '- NO añadir títulos genéricos tipo "Nota", "Resumen", "Tareas", etc., si el usuario no los puso.',
-    '- NO añadir emojis decorativos.',
-    '- NO añadir preámbulo ("Aquí tienes...", "Claro,...", "He organizado...").',
-    '- NO eliminar palabras del usuario aunque te parezcan redundantes.',
+    'PROHIBIDO TOTALMENTE (esto romperá tu respuesta):',
+    '- NO reformules frases, ni siquiera para "que suenen mejor". Mantén el orden y la elección de palabras del usuario.',
+    '- NO resumas, NO acortes, NO unifiques ideas, NO añadas conectores que el usuario no puso.',
+    '- NO añadas información, ejemplos, recomendaciones, ni "ideas extra".',
+    '- NO añadas títulos genéricos como "Nota:", "Resumen:", "Tareas:", "Lista de la compra:" si el usuario no los puso.',
+    '- NO añadas emojis si el usuario no los puso.',
+    '- NO añadas preámbulo ("Aquí tienes...", "Claro,...", "He organizado tu texto...", etc.).',
+    '- NO uses ** (Markdown). Usa * (UN solo asterisco) para negrita.',
+    '- NO traduzcas. Mantén el idioma exacto del usuario, incluyendo palabrotas, jerga y abreviaturas.',
     '',
-    'Devuelve SOLO el texto corregido, listo para enviar a WhatsApp.',
+    'REGLA DE ORO: si dudas entre cambiar algo o dejarlo, DÉJALO. El usuario quiere ver su propio texto, limpio, no una versión reescrita.',
+    '',
+    'Devuelve SOLO el texto corregido, sin explicaciones ni comentarios.',
   ].join('\n');
 
   /**

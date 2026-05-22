@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OpenWaService } from '../openwa/openwa.service';
@@ -52,8 +52,29 @@ const UNITS: Record<string, number> = {
 };
 
 @Injectable()
-export class ReminderService {
+export class ReminderService implements OnModuleInit {
   private readonly logger = new Logger(ReminderService.name);
+
+  /**
+   * Seed inicial: si la setting `remindersPrompt` está vacía la rellena
+   * con DEFAULT_REMINDERS_PROMPT. El usuario lo ve activo en el dashboard
+   * desde el primer momento y puede editarlo libremente. Idempotente —
+   * nunca sobrescribe un prompt ya personalizado.
+   */
+  async onModuleInit() {
+    try {
+      const current = await this.settings.getRemindersPrompt();
+      if (!current) {
+        await this.settings.setRemindersPrompt(
+          ReminderService.DEFAULT_REMINDERS_PROMPT,
+          'seed',
+        );
+        this.logger.log('Seed inicial de remindersPrompt aplicado');
+      }
+    } catch (e: any) {
+      this.logger.warn(`Seed remindersPrompt fallo: ${e.message}`);
+    }
+  }
   /**
    * Sender opcional para confirmación de creación en Telegram (mensaje
    * "Recordatorio guardado..."). NO se usa para disparar el recordatorio
@@ -76,26 +97,40 @@ export class ReminderService {
    * Ajustes → Prompts → Recordatorios (setting `remindersPrompt`).
    */
   static readonly DEFAULT_REMINDERS_PROMPT = [
-    'Eres un parser de recordatorios. Recibes una frase en español en lenguaje natural y devuelves SOLO un JSON con esta estructura exacta:',
+    'Eres un parser de recordatorios pensado para lenguaje COLOQUIAL en español de España.',
+    'Aceptas frases informales, abreviaturas, jerga y faltas. Tu trabajo es entender la INTENCIÓN del usuario y devolver SOLO un JSON con esta estructura exacta:',
     '',
     '{',
-    '  "text": "<descripción corta del recordatorio>",',
-    '  "when": "<ISO 8601 o expresión cron>",',
+    '  "text": "<lo que tiene que recordar, en imperativo o sustantivo, sin "recuérdame">",',
+    '  "when": "<ISO 8601 completa o expresión cron>",',
     '  "type": "once" | "cron"',
     '}',
     '',
     'REGLAS:',
-    '- Si es un evento único: type="once" y `when` es una fecha ISO 8601 completa (YYYY-MM-DDTHH:mm:ss) en la zona horaria que te indico.',
-    '- Si es recurrente: type="cron" y `when` es una expresión cron de 5 campos: "min hora dia mes dow".',
-    '- `text` debe ser la acción a recordar SIN frases tipo "recuérdame que" o "avísame de".',
-    '- Si no entiendes la frase, devuelve {"error":"motivo"}.',
-    '- NO añadas texto antes ni después del JSON. NO uses markdown. Devuelve SOLO JSON válido.',
+    '- Si es un evento único: type="once" y `when` es ISO 8601 (YYYY-MM-DDTHH:mm:ss) en la zona horaria que te indico abajo.',
+    '- Si es recurrente: type="cron" con 5 campos "min hora dia mes dow".',
+    '- `text` debe quedar limpio: SIN "recuérdame", "avísame", "porfa", "tío", "que", "de", etc. al inicio.',
+    '- Si no se indica hora, usa las 09:00 locales por defecto. Si dicen "por la mañana"=09:00, "al mediodía"=14:00, "por la tarde"=18:00, "por la noche"=21:00.',
+    '- Si dicen "en un rato" o "luego"=en 1 hora. "ahora"=en 5 minutos. "más tarde"=en 2 horas.',
+    '- Si dicen "esta tarde"=hoy 18:00. "esta noche"=hoy 21:00. "esta mañana"=hoy 11:00.',
+    '- Si dicen "el finde" o "este finde"=próximo sábado 10:00. "el lunes que viene"=próximo lunes 09:00.',
+    '- Si dicen "antes de comer"=hoy 13:30. "después de comer"=hoy 16:00. "antes de cenar"=hoy 20:30.',
+    '- Acepta abreviaturas: "x" (por), "q" (que), "pq" (porque), "tb" (también), "dnd" (donde), "xq" (porque).',
+    '- Acepta faltas comunes: "manana", "manyana", "mañna" → mañana. "miercoles", "miércoles" → ambas valen.',
+    '- Si la hora va en palabras ("a las siete", "y media", "menos cuarto") interprétalo correctamente.',
+    '- Si no entiendes NADA tras pensarlo, devuelve {"error":"motivo corto"}. Pero esfuérzate primero, las frases coloquiales casi siempre tienen sentido.',
+    '- NO añadas texto antes ni después del JSON. NO uses markdown. NO uses ``` JSON. Devuelve SOLO el JSON válido.',
     '',
     'EJEMPLOS:',
-    '- "recuerdame en una hora que tengo que tirar la basura" -> {"text":"tirar la basura","when":"<ISO ahora+1h>","type":"once"}',
-    '- "mañana a las 7 avisame de llamar al medico" -> {"text":"llamar al medico","when":"<ISO mañana 07:00>","type":"once"}',
-    '- "el viernes recuerdame comprar cables" -> {"text":"comprar cables","when":"<ISO próximo viernes 09:00>","type":"once"}',
+    '- "en una hora hacer el trabajo de Florence" -> {"text":"hacer el trabajo de Florence","when":"<ahora+1h>","type":"once"}',
+    '- "manana a las 7 llamar al medico" -> {"text":"llamar al medico","when":"<mañana 07:00>","type":"once"}',
+    '- "esta tarde recoger paquete" -> {"text":"recoger paquete","when":"<hoy 18:00>","type":"once"}',
+    '- "el viernes q viene comprar cables" -> {"text":"comprar cables","when":"<próximo viernes 09:00>","type":"once"}',
+    '- "luego mirar correo" -> {"text":"mirar correo","when":"<ahora+1h>","type":"once"}',
+    '- "el finde poner lavadora" -> {"text":"poner lavadora","when":"<próximo sábado 10:00>","type":"once"}',
     '- "cada lunes a las 8 sacar basura" -> {"text":"sacar basura","when":"0 8 * * 1","type":"cron"}',
+    '- "todos los dias a las 10 tomar pastilla" -> {"text":"tomar pastilla","when":"0 10 * * *","type":"cron"}',
+    '- "antes de cenar sacar al perro" -> {"text":"sacar al perro","when":"<hoy 20:30>","type":"once"}',
   ].join('\n');
 
   setTelegramSender(fn: (chatId: string | number, text: string) => Promise<any>) {
