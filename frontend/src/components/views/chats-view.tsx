@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient, Message } from '@/lib/api';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/loading';
+import { Skeleton, SkeletonGroup, ThinkingDots } from '@/components/ui/loading';
 import { EmptyState } from '@/components/ui/states';
 import { useAppStore } from '@/store/app-store';
 import { cn, timeAgo } from '@/lib/utils';
@@ -20,7 +20,7 @@ export function ChatsView() {
   const { data: chats, isLoading: chatsLoading } = useQuery({
     queryKey: ['chats'],
     queryFn: apiClient.listChats,
-    refetchInterval: 4_000,
+    refetchInterval: 10_000,   // reducido: socket invalida en tiempo real
   });
 
   const { data: messages } = useQuery({
@@ -28,7 +28,7 @@ export function ChatsView() {
     queryFn: () =>
       selectedChatId ? apiClient.listMessages(selectedChatId) : Promise.resolve([]),
     enabled: !!selectedChatId,
-    refetchInterval: 3_000,
+    refetchInterval: 8_000,    // reducido: socket invalida en tiempo real
   });
 
   // Realtime: cuando el backend emite `message:new`, invalidamos el listado
@@ -84,39 +84,54 @@ export function ChatsView() {
       >
         <div className="-m-4 flex-1 overflow-y-auto">
           {chatsLoading ? (
-            <div className="p-4 space-y-2">
-              <Skeleton className="h-12" />
-              <Skeleton className="h-12" />
-            </div>
+            <SkeletonGroup className="p-3 space-y-2">
+              <Skeleton className="h-14" />
+              <Skeleton className="h-14" />
+              <Skeleton className="h-14" />
+            </SkeletonGroup>
           ) : !chats?.length ? (
             <EmptyState
-              icon={<MessageSquare size={20} strokeWidth={1.5} />}
+              compact
+              icon={<MessageSquare size={18} strokeWidth={1.5} />}
               title="Sin conversaciones"
               description="Espera el primer mensaje en WhatsApp."
             />
           ) : (
             <div className="divide-y divide-border">
-              {chats.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => selectChat(c.chatId)}
-                  className={cn(
-                    'w-full text-left px-4 py-3 transition-colors hover:bg-bg-subtle/50',
-                    selectedChatId === c.chatId && 'bg-bg-subtle',
-                  )}
-                >
-                  <div className="text-sm font-medium truncate">
-                    {c.displayName || c.phone}
-                  </div>
-                  <div className="text-[10px] font-mono text-fg-subtle truncate">
-                    {c.chatId}
-                  </div>
-                  <div className="text-[10px] text-fg-muted mt-1 flex justify-between">
-                    <span>{c.messageCount} msg</span>
-                    <span>{timeAgo(c.lastMessageAt)}</span>
-                  </div>
-                </button>
-              ))}
+              {chats.map((c) => {
+                const name = c.displayName || c.phone || c.chatId;
+                const isActive = selectedChatId === c.chatId;
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => selectChat(c.chatId)}
+                    className={cn(
+                      'w-full flex items-center gap-3 px-4 py-3 text-left transition-colors',
+                      isActive
+                        ? 'bg-bg-subtle'
+                        : 'hover:bg-bg-subtle/50',
+                    )}
+                  >
+                    {/* Avatar */}
+                    <div className={cn(
+                      'h-8 w-8 rounded-full flex items-center justify-center shrink-0 text-xs font-semibold border transition-colors',
+                      isActive
+                        ? 'bg-accent/15 border-accent/30 text-accent'
+                        : 'bg-bg-subtle border-border text-fg-muted',
+                    )}>
+                      {name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-fg truncate">{name}</div>
+                      <div className="text-2xs font-mono text-fg-subtle truncate mt-0.5">{c.chatId}</div>
+                    </div>
+                    <div className="text-right shrink-0 tabular-nums">
+                      <div className="text-xs text-fg-muted">{timeAgo(c.lastMessageAt)}</div>
+                      <div className="text-2xs text-fg-subtle">{c.messageCount} msg</div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
@@ -184,17 +199,29 @@ function ChatPanel({
 }) {
   const [text, setText] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
+  // Auto-scroll al último mensaje cuando llegan nuevos
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length]);
+  }, [messages.length, sending]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!text.trim() || sending) return;
+    onSend(text.trim());
+    setText('');
+    inputRef.current?.focus();
+  };
 
   return (
     <div className="flex flex-col h-full -m-4">
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
-        {messages.length === 0 ? (
+      {/* Área de mensajes */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-2" role="log" aria-label="Mensajes">
+        {messages.length === 0 && !sending ? (
           <EmptyState
-            icon={<MessageSquare size={20} strokeWidth={1.5} />}
+            compact
+            icon={<MessageSquare size={18} strokeWidth={1.5} />}
             title="Sin mensajes todavía"
             description="Escribe para empezar la conversación."
           />
@@ -203,52 +230,77 @@ function ChatPanel({
             {messages.map((m) => (
               <motion.div
                 key={m.id}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.18 }}
+                initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
                 className={cn(
-                  'max-w-[85%] sm:max-w-[80%] rounded-lg px-3 py-2 text-sm',
+                  'max-w-[85%] sm:max-w-[78%] rounded-xl px-3.5 py-2.5 text-sm shadow-card',
                   m.role === 'user'
-                    ? 'ml-auto bg-fg text-bg'
+                    ? 'ml-auto bg-fg text-bg rounded-br-sm'
                     : m.status === 'error'
-                      ? 'bg-danger/10 text-danger border border-danger/30'
-                      : 'bg-bg-subtle text-fg',
+                      ? 'bg-danger/10 text-danger border border-danger/30 rounded-bl-sm'
+                      : 'bg-bg-subtle text-fg rounded-bl-sm',
                 )}
               >
-                <div className="whitespace-pre-wrap break-words">
-                  {m.body || (m.error && `error: ${m.error}`)}
+                <div className="whitespace-pre-wrap break-words leading-relaxed">
+                  {m.body || (m.error && `⚠ ${m.error}`)}
                 </div>
-                <div
-                  className={cn(
-                    'mt-1 text-[10px]',
-                    m.role === 'user' ? 'text-bg/60' : 'text-fg-subtle',
-                  )}
-                >
-                  {m.model ? `${m.model} · ` : ''}
-                  {new Date(m.createdAt).toLocaleTimeString()}
+                <div className={cn(
+                  'mt-1 text-2xs flex items-center gap-1',
+                  m.role === 'user' ? 'text-bg/50 justify-end' : 'text-fg-subtle',
+                )}>
+                  {m.model && <span className="font-mono">{m.model} ·</span>}
+                  <span>{new Date(m.createdAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
               </motion.div>
             ))}
           </AnimatePresence>
         )}
+
+        {/* Indicador "IA pensando" — aparece mientras se espera respuesta */}
+        <AnimatePresence>
+          {sending && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 4 }}
+              transition={{ duration: 0.18 }}
+              className="max-w-[120px] rounded-xl rounded-bl-sm bg-bg-subtle border border-border px-3.5 py-2.5"
+              aria-label="La IA está procesando"
+            >
+              <ThinkingDots />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <div ref={endRef} />
       </div>
+
+      {/* Input de envío */}
       <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!text.trim()) return;
-          onSend(text);
-          setText('');
-        }}
-        className="border-t border-border p-3 flex gap-2"
+        onSubmit={handleSubmit}
+        className="border-t border-border p-3 flex gap-2 items-center"
       >
         <input
+          ref={inputRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Mensaje (se envía por WhatsApp)…"
-          className="flex-1 min-w-0 bg-bg-subtle/60 border border-border rounded-md px-3 py-1.5 text-sm focus:outline-none focus:border-border-strong"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) handleSubmit(e as any);
+          }}
+          placeholder="Mensaje · se envía por WhatsApp…"
+          disabled={sending}
+          className="input-base flex-1 min-w-0 disabled:opacity-50"
+          aria-label="Escribe un mensaje"
         />
-        <Button type="submit" variant="primary" size="md" disabled={sending}>
+        <Button
+          type="submit"
+          variant="primary"
+          size="md"
+          loading={sending}
+          disabled={!text.trim()}
+          aria-label="Enviar mensaje"
+        >
           <Send size={13} />
           <span className="hidden sm:inline">Enviar</span>
         </Button>

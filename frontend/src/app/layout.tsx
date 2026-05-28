@@ -7,7 +7,7 @@ export const metadata: Metadata = {
     default: 'Local AI Hub',
     template: '%s · Local AI Hub',
   },
-  description: 'WhatsApp ↔ Ollama local hub — panel de control',
+  description: 'WhatsApp ↔ Ollama local hub · panel de control',
   applicationName: 'Local AI Hub',
   robots: { index: false, follow: false },
   formatDetection: { telephone: false },

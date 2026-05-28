@@ -6,7 +6,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatBytes(n?: number) {
-  if (!n) return '—';
+  if (!n) return '·';
   const u = ['B', 'KB', 'MB', 'GB', 'TB'];
   let i = 0;
   let v = n;
@@ -15,7 +15,7 @@ export function formatBytes(n?: number) {
 }
 
 export function timeAgo(date: string | Date | undefined) {
-  if (!date) return '—';
+  if (!date) return '·';
   const d = typeof date === 'string' ? new Date(date) : date;
   const diff = (Date.now() - d.getTime()) / 1000;
   if (diff < 60) return `${Math.floor(diff)}s`;

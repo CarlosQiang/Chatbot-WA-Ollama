@@ -5,6 +5,7 @@ import {
   Get,
   Post,
   Put,
+  Query,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import {
@@ -274,6 +275,80 @@ export class SettingsController {
     }
 
     return this.settings.setAutoReply(!!body?.enabled, normalized, 'dashboard');
+  }
+
+  /**
+   * Diagnóstico: dado un número de teléfono (en cualquier formato), explica
+   * EXACTAMENTE qué le pasará si escribe al bot. Útil cuando "Auto-IA no
+   * responde a quien yo quiero" — el endpoint dice si el número fue
+   * normalizado bien, si está en la lista, si el modo lo bloquea, etc.
+   */
+  @Get('auto-reply/diagnose')
+  async diagnoseAutoReply(@Query('chatId') raw?: string) {
+    const input = (raw || '').trim();
+    if (!input) {
+      throw new BadRequestException('Falta query param `chatId`.');
+    }
+    const normalized = normalizeChatId(input);
+    const mode = await this.settings.getBotMode();
+    const auto = await this.settings.getAutoReply();
+    const allowed = await this.settings.getAllowedChatIds();
+    const admins = await this.settings.getAdminChatIds();
+    const botPhone = (process.env.OPENWA_SESSION_PHONE || '').replace(/\D/g, '');
+    const botChatId = botPhone ? `${botPhone}@c.us` : '';
+
+    const isAdmin = !!normalized && admins.includes(normalized);
+    const isAutoTarget = !!(
+      normalized &&
+      auto.enabled &&
+      auto.chatIds.includes(normalized)
+    );
+    const isInWhitelist = !!normalized && allowed.includes(normalized);
+
+    let willReply = false;
+    let willUseAutoIaPrompt = false;
+    let reason = '';
+
+    if (!normalized) {
+      reason = `No se pudo normalizar "${input}". Debe ser un número de teléfono (6–18 dígitos).`;
+    } else if (normalized === botChatId) {
+      reason =
+        'Es el propio número del bot. El bot ignora sus propios mensajes para evitar bucles.';
+    } else if (mode === 'silent') {
+      reason = 'Modo bot = SILENT. El bot no responde a nadie, ni siquiera Auto-IA.';
+    } else if (mode === 'maintenance' && !isAdmin) {
+      reason =
+        'Modo bot = MAINTENANCE. Solo administradores reciben aviso; el resto se ignora.';
+    } else if (mode === 'manual' && !isAutoTarget && !isAdmin) {
+      reason =
+        'Modo bot = MANUAL. Solo admins (con comandos) o números Auto-IA reciben respuesta.';
+    } else if (!isAdmin && !isAutoTarget && !isInWhitelist) {
+      reason =
+        'No está en Auto-IA, no está en la whitelist y no es admin. Añádelo en Ajustes → Auto-IA para que reciba respuestas IA.';
+    } else {
+      willReply = true;
+      willUseAutoIaPrompt = isAutoTarget;
+      reason = isAutoTarget
+        ? 'Auto-IA activa: el bot responderá SIEMPRE con Ollama usando tu prompt + persona.'
+        : isAdmin
+          ? 'Es admin: el bot responderá a sus comandos. Mensajes normales también van por Ollama si el modo no es manual.'
+          : 'Está en la whitelist: el bot responderá según el modo activo.';
+    }
+
+    return {
+      input,
+      normalized,
+      botChatId,
+      mode,
+      isAdmin,
+      isAutoTarget,
+      isInWhitelist,
+      autoReplyEnabled: auto.enabled,
+      autoReplyListSize: auto.chatIds.length,
+      willReply,
+      willUseAutoIaPrompt,
+      reason,
+    };
   }
 
   // ─── Proveedor IA (Ollama | OpenAI) ───────────────────────

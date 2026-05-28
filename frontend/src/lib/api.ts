@@ -212,6 +212,31 @@ export const apiClient = {
       .then((r) => r.data),
   saveAutoReplyPrompt: (data: { prompt?: string; persona?: string }) =>
     api.put('/settings/auto-reply/prompt', data).then((r) => r.data),
+  getBotMode: () =>
+    api
+      .get<{
+        mode: string;
+        available: string[];
+        descriptions: Record<string, string>;
+      }>('/settings/mode')
+      .then((r) => r.data),
+  diagnoseAutoReply: (chatId: string) =>
+    api
+      .get<{
+        input: string;
+        normalized: string | null;
+        botChatId: string;
+        mode: string;
+        isAdmin: boolean;
+        isAutoTarget: boolean;
+        isInWhitelist: boolean;
+        autoReplyEnabled: boolean;
+        autoReplyListSize: number;
+        willReply: boolean;
+        willUseAutoIaPrompt: boolean;
+        reason: string;
+      }>('/settings/auto-reply/diagnose', { params: { chatId } })
+      .then((r) => r.data),
 
   // ─── Whitelist chatIds ─────────────────────────────────────
   getAllowedChats: () =>
@@ -299,7 +324,7 @@ export const apiClient = {
   openwaRegisterWebhook: (url?: string) =>
     api.post('/openwa/webhooks/register', { url }).then((r) => r.data),
 
-  // ─── OpenWA — gestión completa desde el panel ──────────────
+  // ─── OpenWA · gestión completa desde el panel ──────────────
   openwaListSessions: () =>
     api.get<any[]>('/openwa/sessions').then((r) => r.data),
   openwaGetSessionById: (id: string) =>

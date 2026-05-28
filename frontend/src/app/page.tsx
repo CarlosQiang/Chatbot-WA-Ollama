@@ -20,31 +20,31 @@ export default function HomePage() {
   const view = useAppStore((s) => s.view);
 
   return (
-    <div className="grid-bg min-h-screen flex">
+    <div className="grid-bg min-h-screen flex overflow-hidden">
       <Sidebar />
-      <main className="flex-1 flex flex-col min-w-0">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <Topbar />
-        <div className="flex-1 p-4 sm:p-6 overflow-y-auto">
+        <div className="flex-1 p-4 sm:p-5 overflow-y-auto overflow-x-hidden">
           <AnimatePresence mode="wait">
             <motion.div
               key={view}
-              initial={{ opacity: 0, y: 4 }}
+              initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.18 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
             >
-              {view === 'dashboard' && <DashboardView />}
-              {view === 'chats' && <ChatsView />}
-              {view === 'models' && <ModelsView />}
+              {view === 'dashboard'   && <DashboardView />}
+              {view === 'chats'       && <ChatsView />}
+              {view === 'models'      && <ModelsView />}
               {view === 'connections' && <ConnectionsView />}
-              {view === 'commands' && <CommandsView />}
-              {view === 'whatsapp' && <WhatsappView />}
-              {view === 'telegram' && <TelegramView />}
-              {view === 'reminders' && <RemindersView />}
-              {view === 'notes' && <NotesView />}
-              {view === 'autoreply' && <AutoReplyView />}
-              {view === 'logs' && <LogsView />}
-              {view === 'settings' && <SettingsView />}
+              {view === 'commands'    && <CommandsView />}
+              {view === 'whatsapp'    && <WhatsappView />}
+              {view === 'telegram'    && <TelegramView />}
+              {view === 'reminders'   && <RemindersView />}
+              {view === 'notes'       && <NotesView />}
+              {view === 'autoreply'   && <AutoReplyView />}
+              {view === 'logs'        && <LogsView />}
+              {view === 'settings'    && <SettingsView />}
             </motion.div>
           </AnimatePresence>
         </div>

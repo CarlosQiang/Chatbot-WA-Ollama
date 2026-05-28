@@ -94,7 +94,7 @@ export function TelegramView() {
         <div className="space-y-4">
           {/* Token */}
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block">
+            <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 block">
               Bot Token (obtener con @BotFather)
             </label>
             <div className="flex gap-2">
@@ -103,7 +103,7 @@ export function TelegramView() {
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
                 placeholder={status.data?.config?.hasToken ? `Actual: ${status.data.config.tokenMask}` : 'Ej: 1234567890:AAFxxxxxxx'}
-                className="flex-1 bg-bg-subtle/60 border border-border rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:border-border-strong"
+                className="flex-1 input-base font-mono"
               />
               <Button
                 variant="ghost"
@@ -120,14 +120,14 @@ export function TelegramView() {
 
           {/* User IDs */}
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block">
+            <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 block">
               Telegram User IDs autorizados (coma-separados)
             </label>
             <input
               value={allowedIds}
               onChange={(e) => setAllowedIds(e.target.value)}
               placeholder="123456789,987654321"
-              className="w-full bg-bg-subtle/60 border border-border rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:border-border-strong"
+              className="w-full input-base font-mono"
             />
             <div className="text-[11px] text-fg-subtle mt-1.5">
               Solo estos usuarios pueden hablar con el bot. Para saber tu id, manda /quien al bot
@@ -156,7 +156,7 @@ export function TelegramView() {
         action={
           <span
             className={cn(
-              'text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full',
+              'text-2xs uppercase tracking-wider px-2 py-0.5 rounded-full',
               bridgeWa
                 ? 'bg-accent/15 text-accent border border-accent/30'
                 : 'bg-bg-subtle text-fg-subtle border border-border',
@@ -207,14 +207,14 @@ export function TelegramView() {
           </button>
 
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block">
+            <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 block">
               ChatId WhatsApp destino
             </label>
             <input
               value={bridgeChatId}
               onChange={(e) => setBridgeChatId(e.target.value.trim())}
               placeholder="34670209033@c.us"
-              className="w-full bg-bg-subtle/60 border border-border rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:border-border-strong"
+              className="w-full input-base font-mono"
             />
             {bridgeChatId && !validChat && (
               <div className="text-[11px] text-danger mt-1">
@@ -236,11 +236,11 @@ export function TelegramView() {
 
       <Card title="Comandos disponibles">
         <ul className="text-xs font-mono space-y-1.5 text-fg-muted">
-          <li><span className="text-accent">&lt;texto&gt;</span> sin comando — chat con Ollama (+ bridge si activo)</li>
-          <li><span className="text-accent">/ai</span> &lt;texto&gt; — IA explicita</li>
-          <li><span className="text-accent">/wa</span> &lt;texto&gt; — enviar texto literal a WhatsApp</li>
-          <li><span className="text-accent">/aiwa</span> &lt;texto&gt; — IA + envio manual a WhatsApp</li>
-          <li><span className="text-accent">/recordar</span> hoy a las 18:00 ... — lenguaje natural</li>
+          <li><span className="text-accent">&lt;texto&gt;</span> sin comando · chat con Ollama (+ bridge si activo)</li>
+          <li><span className="text-accent">/ai</span> &lt;texto&gt; · IA explicita</li>
+          <li><span className="text-accent">/wa</span> &lt;texto&gt; · enviar texto literal a WhatsApp</li>
+          <li><span className="text-accent">/aiwa</span> &lt;texto&gt; · IA + envio manual a WhatsApp</li>
+          <li><span className="text-accent">/recordar</span> hoy a las 18:00 ... · lenguaje natural</li>
           <li><span className="text-accent">/modo</span> &lt;manual|private|ai|silent|maintenance&gt;</li>
           <li><span className="text-accent">/silencio</span> / <span className="text-accent">/resumir</span></li>
           <li><span className="text-accent">/whitelist add 34xxx@c.us</span></li>
@@ -254,7 +254,7 @@ export function TelegramView() {
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <span className="text-[10px] uppercase tracking-wider text-fg-subtle">{label}</span>
+      <span className="text-2xs uppercase tracking-wider text-fg-subtle">{label}</span>
       <span className="text-sm">{value}</span>
     </div>
   );

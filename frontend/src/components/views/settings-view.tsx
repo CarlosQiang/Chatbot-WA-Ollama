@@ -13,7 +13,7 @@ import { AiProviderSection, CustomPromptsSection } from './settings-ai-section';
 const isValidUrl = (s: string) => /^https?:\/\/\S+/i.test(s);
 
 /**
- * Normalización flexible — espejo de `normalizeChatId` del backend.
+ * Normalización flexible · espejo de `normalizeChatId` del backend.
  * Acepta cualquier formato razonable, devuelve `34XXXXXXXXX@c.us` o null.
  */
 function normalizeChatId(input: string): string | null {
@@ -166,12 +166,12 @@ export function SettingsView() {
         <div className="space-y-4">
           {/* Bot conectado */}
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block">
+            <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 block">
               Bot conectado (sesión OpenWA)
             </label>
             <div className="bg-bg-subtle/40 border border-border rounded-md px-3 py-2 text-sm font-mono flex items-center justify-between">
-              <span>{botPhone || '—'}</span>
-              <span className="text-[10px] text-fg-subtle uppercase tracking-wider">
+              <span>{botPhone || '·'}</span>
+              <span className="text-2xs text-fg-subtle uppercase tracking-wider">
                 solo lectura
               </span>
             </div>
@@ -181,12 +181,12 @@ export function SettingsView() {
             </div>
           </div>
 
-          {/* Personal WhatsApp — destino para flujos Telegram → IA → WA */}
+          {/* Personal WhatsApp · destino para flujos Telegram → IA → WA */}
           <PersonalWaSection />
 
           {/* Test chatId */}
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block">
+            <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 block">
               WhatsApp para botones de TEST
             </label>
             <div className="flex gap-2">
@@ -194,7 +194,7 @@ export function SettingsView() {
                 value={testChatId}
                 onChange={(e) => setTestChatId(e.target.value)}
                 placeholder="612345678 · +34612345678 · 34670209033@c.us"
-                className="flex-1 bg-bg-subtle/60 border border-border rounded-md px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-border-strong"
+                className="flex-1 input-base font-mono py-1.5"
               />
               <Button
                 variant="primary"
@@ -220,7 +220,7 @@ export function SettingsView() {
 
           {/* Allowed list */}
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block flex items-center gap-1.5">
+            <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 block flex items-center gap-1.5">
               <Shield size={11} /> WhatsApp permitidos para chatear (whitelist)
             </label>
             <div className="space-y-1.5 mb-2">
@@ -237,7 +237,7 @@ export function SettingsView() {
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-xs">{id}</span>
                       {selfChatId === id && (
-                        <span className="text-[10px] uppercase tracking-wider text-accent">
+                        <span className="text-2xs uppercase tracking-wider text-accent">
                           tú mismo
                         </span>
                       )}
@@ -259,7 +259,7 @@ export function SettingsView() {
                 onChange={(e) => setNewAllowed(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && addAllowed()}
                 placeholder="612345678 · +34612345678 · 34 612 345 678"
-                className="flex-1 bg-bg-subtle/60 border border-border rounded-md px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-border-strong"
+                className="flex-1 input-base font-mono py-1.5"
               />
               <Button variant="outline" onClick={addAllowed} disabled={!newAllowedValid}>
                 <Plus size={12} /> Añadir
@@ -324,14 +324,14 @@ export function SettingsView() {
       >
         <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-end">
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block">
+            <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 block">
               Servidor Ollama
             </label>
             <input
               value={ollamaUrl}
               onChange={(e) => setOllamaUrl(e.target.value)}
               placeholder="http://192.168.8.150:11434"
-              className="w-full bg-bg-subtle/60 border border-border rounded-md px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-border-strong"
+              className="w-full input-base font-mono py-1.5"
             />
             {ollamaUrl && !urlValid && (
               <div className="text-[11px] text-danger mt-1">
@@ -353,13 +353,13 @@ export function SettingsView() {
 
         <div className="mt-4 grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-end">
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block">
+            <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 block">
               Modelo activo
             </label>
             <select
               value={activeModel}
               onChange={(e) => setActiveModel(e.target.value)}
-              className="w-full bg-bg-subtle/60 border border-border rounded-md px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-border-strong"
+              className="w-full input-base font-mono py-1.5"
             >
               {ollama.data?.models?.length ? (
                 ollama.data.models.map((m) => (
@@ -368,7 +368,7 @@ export function SettingsView() {
                   </option>
                 ))
               ) : (
-                <option value="">— sin modelos detectados —</option>
+                <option value="">· sin modelos detectados ·</option>
               )}
             </select>
             {ollama.isLoading && <Skeleton className="h-4 w-32 mt-2" />}
@@ -406,7 +406,7 @@ export function SettingsView() {
           value={systemPrompt}
           onChange={(e) => setSystemPrompt(e.target.value)}
           rows={4}
-          className="w-full bg-bg-subtle/60 border border-border rounded-md p-3 text-sm font-mono focus:outline-none focus:border-border-strong"
+          className="w-full input-base font-mono"
         />
         <div className="mt-3 flex justify-end">
           <Button
@@ -424,16 +424,16 @@ export function SettingsView() {
       <Card title="Sesión OpenWA">
         <div className="text-xs font-mono space-y-1">
           <div>
-            <span className="text-fg-subtle">id:</span> {session.data?.id || '—'}
+            <span className="text-fg-subtle">id:</span> {session.data?.id || '·'}
           </div>
           <div>
-            <span className="text-fg-subtle">name:</span> {session.data?.name || '—'}
+            <span className="text-fg-subtle">name:</span> {session.data?.name || '·'}
           </div>
           <div>
-            <span className="text-fg-subtle">status:</span> {session.data?.status || '—'}
+            <span className="text-fg-subtle">status:</span> {session.data?.status || '·'}
           </div>
           <div>
-            <span className="text-fg-subtle">phone:</span> {session.data?.phone || session.data?.me?.user || '—'}
+            <span className="text-fg-subtle">phone:</span> {session.data?.phone || session.data?.me?.user || '·'}
           </div>
         </div>
       </Card>
@@ -460,7 +460,7 @@ export function SettingsView() {
 }
 
 /**
- * Personal WhatsApp — destino por defecto cuando un recordatorio o nota
+ * Personal WhatsApp · destino por defecto cuando un recordatorio o nota
  * se crea desde Telegram o desde el dashboard. Si está vacío, fallback
  * automático al self-chat del bot (OPENWA_SESSION_PHONE@c.us).
  */
@@ -490,7 +490,7 @@ function PersonalWaSection() {
 
   return (
     <div>
-      <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block">
+      <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 block">
         Mi WhatsApp personal (destino flujos Telegram)
       </label>
       <div className="flex gap-2">
@@ -498,7 +498,7 @@ function PersonalWaSection() {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder={data?.botPhone ? `${data.botPhone}@c.us (por defecto: self-chat)` : '612345678'}
-          className="flex-1 bg-bg-subtle/60 border border-border rounded-md px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-border-strong"
+          className="flex-1 input-base font-mono py-1.5"
         />
         <Button
           variant="primary"

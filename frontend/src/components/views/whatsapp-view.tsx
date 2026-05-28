@@ -190,7 +190,7 @@ export function WhatsappView() {
   });
 
   // ── Helpers de render ──
-  const sessionStatus = session.data?.status || '—';
+  const sessionStatus = session.data?.status || '·';
   const isConnected =
     sessionStatus.toLowerCase() === 'connected' ||
     sessionStatus.toLowerCase() === 'ready';
@@ -227,7 +227,7 @@ export function WhatsappView() {
               session.isLoading ? (
                 <Skeleton className="h-4 w-32" />
               ) : (
-                <span className="font-mono">{session.data?.name || sessionName || '—'}</span>
+                <span className="font-mono">{session.data?.name || sessionName || '·'}</span>
               )
             }
           />
@@ -235,7 +235,7 @@ export function WhatsappView() {
             label="Número"
             value={
               <span className="font-mono">
-                {session.data?.phone || session.data?.me?.user || sessionPhone || '—'}
+                {session.data?.phone || session.data?.me?.user || sessionPhone || '·'}
               </span>
             }
           />
@@ -243,7 +243,7 @@ export function WhatsappView() {
             label="Session ID"
             value={
               <span className="font-mono text-xs text-fg-muted">
-                {session.data?.id || sessionId || '—'}
+                {session.data?.id || sessionId || '·'}
               </span>
             }
           />
@@ -306,14 +306,14 @@ export function WhatsappView() {
       >
         <div className="space-y-4">
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 flex items-center gap-1.5">
+            <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 flex items-center gap-1.5">
               <Globe size={11} /> URL del servidor OpenWA
             </label>
             <input
               value={apiUrl}
               onChange={(e) => setApiUrl(e.target.value)}
               placeholder="http://192.168.8.200:2785/api"
-              className="w-full bg-bg-subtle/60 border border-border rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:border-border-strong"
+              className="w-full input-base font-mono"
             />
             <div className="text-[11px] text-fg-subtle mt-1">
               Debe ser accesible desde dentro del contenedor del backend.
@@ -322,7 +322,7 @@ export function WhatsappView() {
           </div>
 
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block">
+            <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 block">
               API Key de OpenWA
             </label>
             <div className="flex gap-2">
@@ -332,53 +332,53 @@ export function WhatsappView() {
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder={
                   config.data?.hasApiKey
-                    ? `Actual: ${config.data.apiKeyMask} — escribe para cambiarla`
+                    ? `Actual: ${config.data.apiKeyMask} · escribe para cambiarla`
                     : 'owa_k1_xxxxxxxxxxxxxxxxxxxxx'
                 }
-                className="flex-1 bg-bg-subtle/60 border border-border rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:border-border-strong"
+                className="flex-1 input-base font-mono"
               />
               <Button variant="ghost" onClick={() => setShowKey(!showKey)}>
                 {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
               </Button>
             </div>
             <div className="text-[11px] text-fg-subtle mt-1">
-              No se devuelve por la API una vez guardada — solo se muestran los últimos caracteres como verificación.
+              No se devuelve por la API una vez guardada · solo se muestran los últimos caracteres como verificación.
               Deja vacío para mantener la actual.
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block">
+              <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 block">
                 Session ID
               </label>
               <input
                 value={sessionId}
                 onChange={(e) => setSessionId(e.target.value)}
                 placeholder="uuid de la sesión"
-                className="w-full bg-bg-subtle/60 border border-border rounded-md px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-border-strong"
+                className="w-full input-base font-mono text-xs py-1.5"
               />
             </div>
             <div>
-              <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block">
+              <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 block">
                 Nombre
               </label>
               <input
                 value={sessionName}
                 onChange={(e) => setSessionName(e.target.value)}
                 placeholder="chatbot-wa"
-                className="w-full bg-bg-subtle/60 border border-border rounded-md px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-border-strong"
+                className="w-full input-base font-mono text-xs py-1.5"
               />
             </div>
             <div>
-              <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block">
+              <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 block">
                 Teléfono
               </label>
               <input
                 value={sessionPhone}
                 onChange={(e) => setSessionPhone(e.target.value)}
                 placeholder="34670209033"
-                className="w-full bg-bg-subtle/60 border border-border rounded-md px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-border-strong"
+                className="w-full input-base font-mono text-xs py-1.5"
               />
             </div>
           </div>
@@ -439,7 +439,7 @@ export function WhatsappView() {
           <span className="flex items-center gap-2">
             <Smartphone size={13} /> Sesiones en OpenWA
             {sessions.data && (
-              <span className="text-[10px] uppercase tracking-wider text-fg-subtle">
+              <span className="text-2xs uppercase tracking-wider text-fg-subtle">
                 · {Array.isArray(sessions.data) ? sessions.data.length : 0}
               </span>
             )}
@@ -467,13 +467,13 @@ export function WhatsappView() {
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="Nombre de la sesión (ej: chatbot-2)"
-                className="bg-bg-subtle/60 border border-border rounded-md px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-border-strong"
+                className="input-base font-mono py-1.5"
               />
               <input
                 value={newPhone}
                 onChange={(e) => setNewPhone(e.target.value)}
                 placeholder="Teléfono (opcional, 34670209033)"
-                className="bg-bg-subtle/60 border border-border rounded-md px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-border-strong"
+                className="input-base font-mono py-1.5"
               />
             </div>
             <div className="flex justify-end gap-2">
@@ -513,13 +513,13 @@ export function WhatsappView() {
                 >
                   <div className="min-w-0 flex-1">
                     <div className="text-sm flex items-center gap-2">
-                      <span className="font-medium">{s.name || '—'}</span>
+                      <span className="font-medium">{s.name || '·'}</span>
                       {isActive && (
-                        <span className="text-[10px] uppercase tracking-wider text-accent">
+                        <span className="text-2xs uppercase tracking-wider text-accent">
                           activa
                         </span>
                       )}
-                      <span className="text-[10px] text-fg-muted">{s.status || ''}</span>
+                      <span className="text-2xs text-fg-muted">{s.status || ''}</span>
                     </div>
                     <div className="text-[11px] text-fg-subtle mt-0.5 flex items-center gap-2 flex-wrap">
                       <span className="font-mono">{s.id || s.sessionId}</span>
@@ -602,7 +602,7 @@ export function WhatsappView() {
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <span className="text-[10px] uppercase tracking-wider text-fg-subtle">{label}</span>
+      <span className="text-2xs uppercase tracking-wider text-fg-subtle">{label}</span>
       <span className="text-sm">{value}</span>
     </div>
   );

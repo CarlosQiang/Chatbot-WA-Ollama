@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
 /**
- * Sección "Proveedor IA" — permite elegir entre Ollama (local) y OpenAI
+ * Sección "Proveedor IA" · permite elegir entre Ollama (local) y OpenAI
  * (o compatibles). Si el usuario tenía Ollama funcionando, NO se toca
  * nada: el default es 'ollama' y los valores existentes siguen iguales.
  */
@@ -93,7 +93,7 @@ export function AiProviderSection() {
       <div className="space-y-4">
         {/* Selector de proveedor */}
         <div>
-          <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block">
+          <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 block">
             ¿Qué modelo usa la aplicación?
           </label>
           <div className="grid grid-cols-2 gap-2">
@@ -130,7 +130,7 @@ export function AiProviderSection() {
 
         {/* Temperatura */}
         <div>
-          <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 flex items-center justify-between">
+          <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 flex items-center justify-between">
             <span>Temperatura</span>
             <span className="text-fg-muted font-mono">{temperature.toFixed(2)}</span>
           </label>
@@ -148,11 +148,11 @@ export function AiProviderSection() {
           </div>
         </div>
 
-        {/* Bloque OpenAI — solo visible si el proveedor activo es openai */}
+        {/* Bloque OpenAI · solo visible si el proveedor activo es openai */}
         {provider === 'openai' && (
           <div className="space-y-3 border-l-2 border-accent/40 pl-3 ml-1">
             <div>
-              <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block">
+              <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 block">
                 OpenAI API Key
               </label>
               <div className="flex gap-2">
@@ -162,10 +162,10 @@ export function AiProviderSection() {
                   onChange={(e) => setOpenaiKey(e.target.value)}
                   placeholder={
                     data?.openaiConfigured
-                      ? '(ya hay una clave guardada — escribe para reemplazarla)'
+                      ? '(ya hay una clave guardada · escribe para reemplazarla)'
                       : 'sk-...'
                   }
-                  className="flex-1 bg-bg-subtle/60 border border-border rounded-md px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-border-strong"
+                  className="flex-1 input-base font-mono py-1.5"
                 />
                 <Button variant="ghost" onClick={() => setShowKey(!showKey)}>
                   {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -178,14 +178,14 @@ export function AiProviderSection() {
             </div>
 
             <div>
-              <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block">
+              <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 block">
                 Base URL (cambia solo si usas un proveedor compatible)
               </label>
               <input
                 value={openaiBaseUrl}
                 onChange={(e) => setOpenaiBaseUrl(e.target.value)}
                 placeholder="https://api.openai.com/v1"
-                className="w-full bg-bg-subtle/60 border border-border rounded-md px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-border-strong"
+                className="w-full input-base font-mono py-1.5"
               />
               <div className="text-[11px] text-fg-subtle mt-1">
                 Funcionan también: OpenRouter (<code>https://openrouter.ai/api/v1</code>), Groq, Together AI, etc.
@@ -193,14 +193,14 @@ export function AiProviderSection() {
             </div>
 
             <div>
-              <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block">
+              <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 block">
                 Modelo OpenAI
               </label>
               <input
                 value={openaiModel}
                 onChange={(e) => setOpenaiModel(e.target.value)}
                 placeholder={data?.provider === 'openai' ? data?.model || 'gpt-4o-mini' : 'gpt-4o-mini'}
-                className="w-full bg-bg-subtle/60 border border-border rounded-md px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-border-strong"
+                className="w-full input-base font-mono py-1.5"
               />
               <div className="text-[11px] text-fg-subtle mt-1">
                 Ejemplos: <code>gpt-4o-mini</code>, <code>gpt-4o</code>, <code>gpt-3.5-turbo</code>.
@@ -237,7 +237,7 @@ export function AiProviderSection() {
 }
 
 /**
- * Sección "Prompts personalizados" — permite al usuario sobrescribir
+ * Sección "Prompts personalizados" · permite al usuario sobrescribir
  * el prompt que usa la IA para organizar notas y para parsear
  * recordatorios. Si los campos están vacíos, se usan los defaults
  * (que ya tocan poco el contenido original).
@@ -286,13 +286,13 @@ export function CustomPromptsSection() {
       <div className="space-y-5">
         <div>
           <div className="flex items-center justify-between mb-1.5">
-            <label className="text-[10px] uppercase tracking-wider text-fg-subtle">
+            <label className="text-2xs uppercase tracking-wider text-fg-subtle">
               Prompt para organizar notas
             </label>
             {data?.notes && (
               <button
                 onClick={() => setNotes('')}
-                className="text-[10px] text-fg-muted hover:text-fg underline"
+                className="text-2xs text-fg-muted hover:text-fg underline"
               >
                 Usar prompt por defecto
               </button>
@@ -306,7 +306,7 @@ export function CustomPromptsSection() {
               'Vacío = se usa el prompt por defecto (corrección suave, sin reinterpretar).'
             }
             rows={6}
-            className="w-full bg-bg-subtle/60 border border-border rounded-md p-3 text-sm font-mono focus:outline-none focus:border-border-strong"
+            className="w-full input-base font-mono"
           />
           <div className="text-[11px] text-fg-subtle mt-1">
             Vacío = corrección ortográfica + formato suave, sin reinterpretar el contenido.
@@ -316,13 +316,13 @@ export function CustomPromptsSection() {
 
         <div>
           <div className="flex items-center justify-between mb-1.5">
-            <label className="text-[10px] uppercase tracking-wider text-fg-subtle">
+            <label className="text-2xs uppercase tracking-wider text-fg-subtle">
               Prompt para entender recordatorios en lenguaje natural
             </label>
             {data?.reminders && (
               <button
                 onClick={() => setReminders('')}
-                className="text-[10px] text-fg-muted hover:text-fg underline"
+                className="text-2xs text-fg-muted hover:text-fg underline"
               >
                 Usar prompt por defecto
               </button>
@@ -336,7 +336,7 @@ export function CustomPromptsSection() {
               'Vacío = prompt por defecto. Solo se usa como fallback cuando el parser estándar no entiende la frase.'
             }
             rows={6}
-            className="w-full bg-bg-subtle/60 border border-border rounded-md p-3 text-sm font-mono focus:outline-none focus:border-border-strong"
+            className="w-full input-base font-mono"
           />
           <div className="text-[11px] text-fg-subtle mt-1">
             Este prompt SOLO se usa cuando el parser estándar (regex) no entiende la frase.
@@ -359,8 +359,8 @@ export function CustomPromptsSection() {
             </div>
             <div className="text-[11px] text-fg-muted mt-0.5">
               {aiFallback
-                ? 'Activo — frases como "mañana a las 7 avísame del médico" sí funcionarán.'
-                : 'Desactivado — solo se aceptan los formatos del parser estándar.'}
+                ? 'Activo · frases como "mañana a las 7 avísame del médico" sí funcionarán.'
+                : 'Desactivado · solo se aceptan los formatos del parser estándar.'}
             </div>
           </div>
           <div

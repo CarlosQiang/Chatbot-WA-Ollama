@@ -65,7 +65,7 @@ export function PromptEditor({
         <span className="flex items-center gap-2">
           <Wand2 size={13} /> {title}
           {isCustom && (
-            <span className="text-[10px] uppercase tracking-wider text-accent bg-accent/10 px-1.5 py-0.5 rounded">
+            <span className="text-2xs uppercase tracking-wider text-accent bg-accent/10 px-1.5 py-0.5 rounded">
               personalizado
             </span>
           )}
@@ -101,7 +101,7 @@ export function PromptEditor({
           onChange={(e) => setValue(e.target.value)}
           placeholder={placeholder}
           rows={8}
-          className="w-full bg-bg-subtle/60 border border-border rounded-md p-3 text-sm font-mono focus:outline-none focus:border-border-strong"
+          className="w-full input-base font-mono"
         />
         <div className="flex justify-between gap-2 mt-2">
           <Button

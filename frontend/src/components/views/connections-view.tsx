@@ -99,14 +99,14 @@ export function ConnectionsView() {
     >
       {/* Campo común chatId */}
       <Card title="WhatsApp de prueba">
-        <label className="text-[10px] uppercase tracking-wider text-fg-subtle mb-1.5 block">
+        <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1.5 block">
           Número (formato 34670209033@c.us)
         </label>
         <input
           value={chatId}
           onChange={(e) => setChatId(e.target.value.trim())}
           placeholder="34670209033@c.us"
-          className="w-full bg-bg-subtle/60 border border-border rounded-md px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-border-strong"
+          className="w-full input-base font-mono py-1.5"
         />
         <div
           className={`mt-2 text-[11px] ${
@@ -131,7 +131,7 @@ export function ConnectionsView() {
                 session.isLoading ? (
                   <Skeleton className="h-4 w-32" />
                 ) : (
-                  <span className="font-mono text-xs">{session.data?.name || '—'}</span>
+                  <span className="font-mono text-xs">{session.data?.name || '·'}</span>
                 )
               }
             />
@@ -139,7 +139,7 @@ export function ConnectionsView() {
               label="Número"
               value={
                 <span className="font-mono text-xs">
-                  {session.data?.phone || '—'}
+                  {session.data?.phone || '·'}
                 </span>
               }
             />
@@ -167,7 +167,7 @@ export function ConnectionsView() {
                   <Skeleton className="h-4 w-40" />
                 ) : (
                   <span className="font-mono text-xs truncate max-w-[200px]" title={ollama.data?.baseUrl}>
-                    {ollama.data?.baseUrl || '—'}
+                    {ollama.data?.baseUrl || '·'}
                   </span>
                 )
               }
@@ -176,7 +176,7 @@ export function ConnectionsView() {
               label="Modelo activo"
               value={
                 <span className="font-mono text-xs text-accent">
-                  {ollama.data?.activeModel || '—'}
+                  {ollama.data?.activeModel || '·'}
                 </span>
               }
             />
@@ -216,7 +216,7 @@ export function ConnectionsView() {
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <div className="text-[10px] uppercase tracking-wider text-fg-subtle">{label}</div>
+      <div className="text-2xs uppercase tracking-wider text-fg-subtle">{label}</div>
       <div className="text-sm">{value}</div>
     </div>
   );

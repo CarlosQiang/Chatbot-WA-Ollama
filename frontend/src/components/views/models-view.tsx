@@ -153,7 +153,7 @@ export function ModelsView() {
                 >
                   <span
                     className={cn(
-                      'text-[10px] uppercase font-mono px-2 py-0.5 rounded',
+                      'text-2xs uppercase font-mono px-2 py-0.5 rounded',
                       isPrimary
                         ? 'bg-accent/20 text-accent'
                         : 'bg-bg-elevated text-fg-subtle',
@@ -165,7 +165,7 @@ export function ModelsView() {
                   {result && (
                     <span
                       className={cn(
-                        'text-[10px] font-mono',
+                        'text-2xs font-mono',
                         result.ok ? 'text-accent' : 'text-danger',
                       )}
                     >
@@ -174,7 +174,7 @@ export function ModelsView() {
                         : 'KO'}
                     </span>
                   )}
-                  {isActive && <span className="text-[10px] text-accent">en uso</span>}
+                  {isActive && <span className="text-2xs text-accent">en uso</span>}
                   <Button
                     size="sm"
                     variant="ghost"
@@ -212,7 +212,7 @@ export function ModelsView() {
 
         {/* Añadir nuevo */}
         <div className="mt-4 pt-3 border-t border-border space-y-2">
-          <label className="text-[10px] uppercase tracking-wider text-fg-subtle block">
+          <label className="text-2xs uppercase tracking-wider text-fg-subtle block">
             Añadir servidor Ollama
           </label>
           <div className="flex gap-2">
@@ -220,7 +220,7 @@ export function ModelsView() {
               value={newUrl}
               onChange={(e) => setNewUrl(e.target.value.trim())}
               placeholder="http://192.168.8.186:11434"
-              className="flex-1 bg-bg-subtle/60 border border-border rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:border-border-strong"
+              className="flex-1 input-base font-mono"
             />
             <Button
               variant="ghost"
@@ -292,13 +292,13 @@ export function ModelsView() {
                   <Server size={11} className="text-fg-subtle" />
                   <span className="font-mono text-xs flex-1">{srv.url}</span>
                   {srv.isPrimary && (
-                    <span className="text-[10px] uppercase font-mono bg-accent/20 text-accent px-2 py-0.5 rounded">
+                    <span className="text-2xs uppercase font-mono bg-accent/20 text-accent px-2 py-0.5 rounded">
                       primario
                     </span>
                   )}
                   <span
                     className={cn(
-                      'text-[10px] font-mono',
+                      'text-2xs font-mono',
                       srv.ok ? 'text-accent' : 'text-danger',
                     )}
                   >
@@ -320,12 +320,12 @@ export function ModelsView() {
                           <div className="flex items-center gap-2">
                             <span className="font-mono text-sm">{m}</span>
                             {isActive && (
-                              <span className="text-[10px] uppercase tracking-wider text-accent">
+                              <span className="text-2xs uppercase tracking-wider text-accent">
                                 activo
                               </span>
                             )}
                             {isActiveModelOnOther && (
-                              <span className="text-[10px] text-fg-subtle">
+                              <span className="text-2xs text-fg-subtle">
                                 activo en otro servidor
                               </span>
                             )}

@@ -78,7 +78,7 @@ export function NotesView() {
             onChange={(e) => setText(e.target.value)}
             placeholder="Escribe aquí tu nota o idea..."
             rows={4}
-            className="w-full bg-bg-subtle/60 border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:border-border-strong resize-vertical"
+            className="w-full input-base resize-vertical"
           />
           <div className="flex justify-end">
             <Button
@@ -110,7 +110,7 @@ export function NotesView() {
             onChange={(e) => setOrganizeText(e.target.value)}
             placeholder="Pega tu idea o conjunto de pensamientos..."
             rows={4}
-            className="w-full bg-bg-subtle/60 border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:border-border-strong resize-vertical"
+            className="w-full input-base resize-vertical"
           />
           <div className="flex justify-end gap-2">
             <Button
@@ -168,7 +168,7 @@ export function NotesView() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 text-[10px] text-fg-subtle uppercase tracking-wider mb-1">
+                    <div className="flex items-center gap-2 text-2xs text-fg-subtle uppercase tracking-wider mb-1">
                       <span className="font-mono">{n.id.slice(0, 6)}</span>
                       <span>· {n.source}</span>
                       <span>· {new Date(n.createdAt).toLocaleString('es-ES')}</span>
@@ -176,7 +176,7 @@ export function NotesView() {
                     <div className="text-sm whitespace-pre-wrap">{n.text}</div>
                     {n.organized && (
                       <div className="mt-2 p-2 rounded bg-accent/5 border border-accent/20 text-sm whitespace-pre-wrap">
-                        <div className="text-[10px] uppercase tracking-wider text-accent mb-1">
+                        <div className="text-2xs uppercase tracking-wider text-accent mb-1">
                           Organizado
                         </div>
                         {n.organized}

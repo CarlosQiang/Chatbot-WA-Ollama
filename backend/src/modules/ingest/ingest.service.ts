@@ -142,10 +142,21 @@ export class IngestService {
       // y sobre el modo `manual` (no sobre silent/maintenance, que son
       // estados de silenciado intencional).
       const isAutoTarget = await this.settings.isAutoReply(chatId);
+      const isWhitelisted = await this.settings.isAllowed(chatId);
 
-      this.logger.debug(
+      // Log estructurado y detallado: si algo no responde, este log lo explica
+      // todo a la primera. Se publica también al panel "Logs" del dashboard
+      // a nivel info para que se vea sin tener que mirar `docker logs`.
+      this.logger.log(
         `[ingest] ${chatId} text="${text.slice(0, 40)}" mode=${mode} ` +
-          `isAdmin=${isAdmin} isCmd=${isCmd} isAutoTarget=${isAutoTarget}`,
+          `isAdmin=${isAdmin} isCmd=${isCmd} isAutoTarget=${isAutoTarget} ` +
+          `isWhitelisted=${isWhitelisted}`,
+      );
+      await this.logs.write(
+        'debug',
+        'webhook',
+        `<- ${chatId} mode=${mode} admin=${isAdmin} autoIA=${isAutoTarget} ` +
+          `whitelist=${isWhitelisted} cmd=${isCmd} text="${text.slice(0, 60)}"`,
       );
 
       if (mode === 'silent') {
@@ -167,10 +178,16 @@ export class IngestService {
         return { ok: true, ignored: 'maintenance' };
       }
 
-      const allowed = isAdmin || isAutoTarget || (await this.settings.isAllowed(chatId));
+      const allowed = isAdmin || isAutoTarget || isWhitelisted;
       if (!allowed) {
         this.logger.log(`[ingest] descartado ${chatId}: NO permitido (whitelist)`);
-        await this.logs.write('info', 'webhook', `<- ${chatId}: NO permitido (whitelist)`);
+        await this.logs.write(
+          'warn',
+          'webhook',
+          `<- ${chatId}: NO permitido. Ni admin, ni Auto-IA, ni whitelist. ` +
+            'Añade el número en Ajustes → Auto-IA (si quieres respuesta IA) ' +
+            'o en Whitelist (modo private/ai).',
+        );
         return { ok: true, ignored: 'not_allowed' };
       }
 
@@ -238,12 +255,28 @@ export class IngestService {
         this.logger.debug(`[ingest] ${chatId}: Auto-IA -> bypass intent, directo a Ollama`);
       }
 
-      this.logger.debug(`[ingest] ${chatId}: -> Ollama (generateAndReply)`);
-      const reply = await this.chat.generateAndReply(chatId);
+      this.logger.debug(
+        `[ingest] ${chatId}: -> Ollama (generateAndReply, isAutoReply=${isAutoTarget})`,
+      );
+      // FIX: pasamos isAutoReply para que ChatService aplique el system prompt
+      // + persona de Auto-IA. Sin esto, el bot respondía con el system prompt
+      // genérico aunque el contacto estuviese en la lista Auto-IA, ignorando
+      // toda la configuración de "Cómo debe responder" y "Sobre ti".
+      const reply = await this.chat.generateAndReply(chatId, {
+        isAutoReply: isAutoTarget,
+      });
       this.logger.debug(
         `[ingest] ${chatId}: generateAndReply ok=${reply?.ok} ` +
           (reply?.error ? `error="${reply.error}"` : ''),
       );
+      if (!reply?.ok) {
+        await this.logs.write(
+          'error',
+          'webhook',
+          `-> ${chatId}: generateAndReply FALLO (${reply?.error || 'desconocido'}). ` +
+            'Revisa Ollama (modelo activo, servidor online) o el lock Redis.',
+        );
+      }
       return { ok: true, handled: 'chat' };
     } catch (err: any) {
       this.logger.error(`[ingest] excepción: ${err.message}`, err.stack);
