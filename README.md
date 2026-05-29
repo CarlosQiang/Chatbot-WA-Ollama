@@ -90,6 +90,39 @@ Cualquier mensaje sin `/` se envía a Ollama y responde como IA.
 
 Formato chatId: `34670209033@c.us` (sin `+`).
 
+## Endpoints HTTP
+
+Swagger interactivo: `http://IP_SERVIDOR:3411/api`.
+
+### Públicos (sin API key)
+
+| Método | Ruta | Uso |
+|--------|------|-----|
+| `GET`  | `/health` | Estado completo: backend, DB, Redis, OpenWA, Ollama. Incluye `latencyMs` por servicio y `totalLatencyMs`. Lo consume el dashboard y el healthcheck de Docker. |
+| `GET`  | `/health/ready` | Readiness ligero: solo DB + Redis. Para probes que no quieren depender de OpenWA / Ollama. |
+| `GET`  | `/health/openwa` | Detalle OpenWA (latencia, `baseUrl`, `sessionId`). |
+| `GET`  | `/health/ollama` | Detalle Ollama (latencia, `baseUrl`, `activeModel`, `models`). |
+| `POST` | `/webhooks/openwa` | Webhook OpenWA. Acepta secret en header `x-webhook-secret`, query `?token=…` o path `/webhooks/openwa/<secret>`. Sin secret configurado, solo accesible desde loopback. Bucket de throttling propio (600/min). |
+
+### Privados (header `x-api-key: <BACKEND_API_KEY>`)
+
+| Método | Ruta | Uso |
+|--------|------|-----|
+| `GET`  | `/chats` | Lista de chats activos. |
+| `GET`  | `/chats/:id/messages` | Histórico de un chat. |
+| `GET`  | `/models` | Modelos disponibles en el Ollama activo. |
+| `POST` | `/models/select` | Cambia modelo activo. |
+| `GET`  | `/settings` | Volcado de settings runtime (claves enmascaradas). |
+| `PUT`  | `/settings` | Edita settings runtime. |
+| `GET`  | `/logs` | Logs persistidos. |
+| `GET`  | `/system/stats` | RAM, CPU, disco. |
+
+### Throttling
+
+Bucket global por defecto: **300 req/min** por IP. `WebhookController`
+lo sobreescribe localmente a **600 req/min** porque OpenWA puede burstear
+muchos eventos seguidos al reintentar tras fallos de red.
+
 ## Proveedor IA: Ollama o OpenAI
 
 Todo configurable desde **Dashboard → Ajustes → Proveedor IA**, sin tocar `.env`.
@@ -139,6 +172,44 @@ No uses `localhost` — el backend corre dentro de Docker.
 - `docs/ARCHITECTURE.md` — diagrama y decisiones técnicas
 - `docs/DEPLOY.md` — despliegue paso a paso
 - `docs/COMMANDS.md` — todos los comandos WhatsApp
+
+## Despliegue y upgrades
+
+Servidor:
+
+```bash
+git pull
+# Reconstruir SOLO los servicios cuyo código cambió:
+docker compose build --no-cache backend         # si cambió backend/
+docker compose build --no-cache frontend        # si cambió frontend/
+docker compose up -d --force-recreate backend frontend
+
+# Forzar migraciones si hubo cambios de schema (idempotente):
+docker compose exec backend npx prisma migrate deploy
+```
+
+Verificación post-deploy:
+
+```bash
+curl -s http://localhost:3411/health | jq
+docker compose ps
+docker compose logs --tail=80 backend | grep -i "AUTO-IA\|error"
+```
+
+Cambios solo de variables `.env` (sin tocar código): basta con
+`docker compose up -d --force-recreate <servicio>`, no hace falta rebuild.
+
+## Tests
+
+```bash
+cd backend
+npm test                # corre todos los specs
+npm run test:cov        # con cobertura
+```
+
+Cobertura crítica actual: `normalizeChatId`, `SettingsService.isAutoReply`
+(multi-número, normalización, migración legacy), pipeline de `IngestService`
+(fix Auto-IA: bypass de modo manual + bypass de intent detector).
 
 ## Troubleshooting
 

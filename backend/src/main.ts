@@ -10,7 +10,24 @@ async function bootstrap() {
     logger: ['log', 'warn', 'error', 'debug', 'verbose'],
   });
 
-  app.use(helmet({ crossOriginResourcePolicy: false }));
+  // Helmet con configuración explícita:
+  //  - crossOriginResourcePolicy desactivado: el frontend en :3410 consume
+  //    la API en :3411, y CORP por defecto bloquea cross-origin.
+  //  - contentSecurityPolicy desactivado en dev/Swagger: Swagger UI carga
+  //    scripts inline; lo dejamos al frontend (Next) que ya aplica su CSP.
+  //  - HSTS solo en producción y siempre tras un proxy TLS. En LAN sin
+  //    HTTPS, HSTS rompe el dashboard.
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: false,
+      crossOriginEmbedderPolicy: false,
+      contentSecurityPolicy: false,
+      hsts:
+        process.env.NODE_ENV === 'production' && process.env.ENABLE_HSTS === 'true'
+          ? { maxAge: 15552000, includeSubDomains: true }
+          : false,
+    }),
+  );
 
   const corsOrigin = (process.env.CORS_ORIGIN || '*')
     .split(',')

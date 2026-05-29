@@ -123,6 +123,9 @@ export class OllamaService implements OnModuleDestroy {
 
   async health() {
     const baseUrl = await this.getActiveBaseUrl();
+    const activeModel = await this.settings
+      .getActiveModel()
+      .catch(() => null as any);
     try {
       const t0 = Date.now();
       const { data } = await this.clientFor(baseUrl).get('/api/tags', { timeout: 5_000 });
@@ -130,10 +133,16 @@ export class OllamaService implements OnModuleDestroy {
         ok: true,
         baseUrl,
         models: data?.models?.length ?? 0,
+        activeModel,
         latencyMs: Date.now() - t0,
       };
     } catch (err) {
-      return { ok: false, baseUrl, error: (err as Error).message };
+      return {
+        ok: false,
+        baseUrl,
+        activeModel,
+        error: (err as Error).message,
+      };
     }
   }
 

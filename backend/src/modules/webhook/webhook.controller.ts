@@ -10,6 +10,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { IngestService } from '../ingest/ingest.service';
 import { LogsService } from '../logs/logs.service';
 import { Public } from '../../common/api-key.guard';
@@ -19,6 +20,12 @@ const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 @ApiTags('webhooks')
 @Controller('webhooks')
+// Webhook público — OpenWA puede burstear muchos eventos seguidos cuando
+// reintenta tras un fallo de red o cuando llegan ráfagas. Sobreescribimos
+// el bucket `default` localmente con un límite más alto (600/min) en lugar
+// de añadir un bucket nuevo: en throttler v5 los buckets son AND, así que
+// añadir uno nuevo no relaja al default — hay que ampliar el propio.
+@Throttle({ default: { ttl: 60_000, limit: 600 } })
 export class WebhookController {
   private readonly logger = new Logger(WebhookController.name);
   private warnedOpenWebhook = false;

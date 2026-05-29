@@ -32,6 +32,10 @@ import { AiModule } from './modules/ai/ai.module';
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
     EventEmitterModule.forRoot(),
+    // Bucket único global: 300/min. El dashboard dispara varias llamadas
+    // en paralelo por vista, pero 300/min holgan. Los controllers que
+    // necesitan otra cuota (ej. WebhookController, donde OpenWA puede
+    // burstear) lo sobreescriben localmente con @Throttle({ default: ... }).
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     PrismaModule,
     RedisModule,

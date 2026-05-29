@@ -140,12 +140,28 @@ export class OpenWaService {
 
   // ─── HTTP API ──────────────────────────────────────────────
   async health() {
+    const t0 = Date.now();
+    let baseUrl: string | null = null;
+    try {
+      baseUrl = await this.settings.getOpenWaApiUrl();
+    } catch {}
     try {
       const http = await this.http();
       const { data } = await http.get('/health');
-      return { ok: true, data };
+      return {
+        ok: true,
+        latencyMs: Date.now() - t0,
+        baseUrl,
+        sessionId: await this.getSessionId().catch(() => null),
+        data,
+      };
     } catch (err) {
-      return { ok: false, error: (err as Error).message };
+      return {
+        ok: false,
+        latencyMs: Date.now() - t0,
+        baseUrl,
+        error: (err as Error).message,
+      };
     }
   }
 
