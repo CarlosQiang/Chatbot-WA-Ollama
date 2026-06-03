@@ -35,13 +35,21 @@ function buildSettings(overrides: Partial<{
   };
 }
 
-function buildOpenwa() {
+function buildOpenwa(opts: { lidResolvesTo?: string | null } = {}) {
   return {
     isOwnMessage: stub(async () => false),
     markMessageSeen: stub(async () => true),
     isOwnEcho: stub(async () => false),
     checkBurst: stub(async () => ({ tripped: false, count: 0 })),
     sendText: stub(async () => ({ ok: true })),
+    // Por defecto NO resuelve nada (devuelve null) — tests con phone-based
+    // chatIds no tocan este path. Tests con @lid pueden pasar
+    // `lidResolvesTo` para simular el contacto resuelto.
+    resolveContactPhone: stub(async (cid: string) => {
+      if (cid.endsWith('@c.us')) return cid;
+      if (opts.lidResolvesTo) return opts.lidResolvesTo;
+      return null;
+    }),
   };
 }
 
@@ -76,9 +84,10 @@ function build(opts: {
   allowed?: string[];
   autoReply?: string[];
   intent?: 'chat' | 'reminder' | 'note';
+  lidResolvesTo?: string | null;
 } = {}) {
   const settings = buildSettings(opts);
-  const openwa = buildOpenwa();
+  const openwa = buildOpenwa({ lidResolvesTo: opts.lidResolvesTo });
   const chat = buildChat();
   const intent = buildIntent(opts.intent);
   const logs = buildLogs();
@@ -209,6 +218,37 @@ describe('IngestService.ingest — Auto-IA (fix)', () => {
       userId,
       expect.objectContaining({ isAutoReply: false }),
     );
+  });
+
+  // El caso real moderno: WhatsApp entrega el mensaje con @lid. El
+  // usuario solo metió el TELÉFONO en la lista Auto-IA. resolveContactPhone
+  // hace la traducción y el match debe pasar.
+  it('@lid entrante: se resuelve al phone, matchea Auto-IA y responde', async () => {
+    const lid = '165927622602815@lid';
+    const { svc, chat, openwa } = build({
+      mode: 'private',
+      autoReply: [userId], // solo el TELÉFONO en la lista
+      lidResolvesTo: userId, // OpenWA resuelve el lid -> teléfono
+    });
+    const r = await svc.ingest({ data: { chatId: lid, body: 'hola' } });
+    expect(r.handled).toBe('chat');
+    expect(openwa.resolveContactPhone).toHaveBeenCalledWith(lid);
+    expect(chat.generateAndReply).toHaveBeenCalledWith(
+      lid,
+      expect.objectContaining({ isAutoReply: true }),
+    );
+  });
+
+  it('@lid entrante que NO se resuelve: cae a "not_allowed" con log pegable', async () => {
+    const lid = '999999999999999@lid';
+    const { svc, chat } = build({
+      mode: 'private',
+      autoReply: [userId],
+      lidResolvesTo: null, // OpenWA no lo resuelve
+    });
+    const r = await svc.ingest({ data: { chatId: lid, body: 'hola' } });
+    expect(r).toEqual({ ok: true, ignored: 'not_allowed' });
+    expect(chat.generateAndReply).not.toHaveBeenCalled();
   });
 });
 

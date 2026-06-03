@@ -185,6 +185,138 @@ export class OpenWaService {
     }
   }
 
+  // ─── Resolver @lid -> @c.us ───────────────────────────────
+  //
+  // WhatsApp envía hoy muchos mensajes con chatId `@lid` (LinkedId,
+  // identificador opaco por contacto). El usuario solo conoce números
+  // de teléfono, así que tenemos que traducir `@lid` -> `@c.us` para
+  // que la lista Auto-IA matchee aunque el usuario meta solo el número.
+  //
+  // Probamos varios endpoints de OpenWA porque la API ha cambiado entre
+  // versiones. Cualquiera de los formatos sirve siempre que devuelva
+  // algo parseable como `number`, `id`, `id._serialized`, `wid`, etc.
+  // Cacheamos el resultado en Redis 7 días (`wa:lid2phone:<lid>`) para
+  // no martillar a OpenWA con cada mensaje.
+
+  private readonly LID_CACHE_TTL_SEC = 7 * 24 * 3600;
+
+  /**
+   * Dado un chatId que puede ser `@lid` o `@c.us`, devuelve el chatId
+   * canónico de TELÉFONO (`<digits>@c.us`). Si el input ya es `@c.us`,
+   * lo devuelve tal cual. Si es `@lid` y se puede resolver, devuelve
+   * el `@c.us` correspondiente. Si no se puede resolver, devuelve null.
+   *
+   * NUNCA lanza — los fallos quedan en logs y se devuelve null para
+   * que el caller pueda decidir el fallback (ej. log warn al usuario).
+   */
+  async resolveContactPhone(chatId: string): Promise<string | null> {
+    if (!chatId || typeof chatId !== 'string') return null;
+    // Phone-based ya: devuelve directamente.
+    if (chatId.endsWith('@c.us')) return chatId;
+    if (chatId.endsWith('@s.whatsapp.net')) {
+      return chatId.replace(/@s\.whatsapp\.net$/i, '@c.us');
+    }
+    if (!chatId.endsWith('@lid')) return null;
+
+    const cacheKey = `wa:lid2phone:${chatId}`;
+    try {
+      const cached = await this.redis.get(cacheKey);
+      if (cached === '__none__') return null;
+      if (cached) return cached;
+    } catch {}
+
+    let resolved: string | null = null;
+    try {
+      const sid = await this.getSessionId();
+      const http = await this.http();
+      // Lista de rutas a probar, en orden. Cada API de OpenWA expone una
+      // variante distinta; nos detenemos en la primera que responda 2xx.
+      const candidates: Array<() => Promise<any>> = [
+        () => http.get(`/sessions/${sid}/contacts/${encodeURIComponent(chatId)}`),
+        () => http.get(`/sessions/${sid}/contacts/${encodeURIComponent(chatId)}/profile`),
+        () => http.get(`/sessions/${sid}/profile/${encodeURIComponent(chatId)}`),
+        () => http.post(`/sessions/${sid}/chats/getNumberProfile`, { chatId }),
+        () => http.post(`/sessions/${sid}/getNumberProfile`, { chatId }),
+      ];
+
+      for (const call of candidates) {
+        try {
+          const { data } = await call();
+          resolved = this.extractPhoneChatId(data);
+          if (resolved) break;
+        } catch {
+          // siguiente
+        }
+      }
+    } catch (err) {
+      await this.logs.write(
+        'warn',
+        'openwa',
+        `resolveContactPhone(${chatId}) excepción global: ${(err as Error).message}`,
+      );
+    }
+
+    try {
+      // Cachea positivo 7d, negativo 1h (para reintentar pronto si la
+      // API empieza a responder más tarde).
+      if (resolved) {
+        await this.redis.set(cacheKey, resolved, this.LID_CACHE_TTL_SEC);
+      } else {
+        await this.redis.set(cacheKey, '__none__', 3600);
+      }
+    } catch {}
+
+    if (resolved) {
+      await this.logs.write(
+        'info',
+        'openwa',
+        `LID resuelto ${chatId} -> ${resolved}`,
+      );
+    } else {
+      await this.logs.write(
+        'debug',
+        'openwa',
+        `LID NO resuelto ${chatId} (ningún endpoint de OpenWA devolvió phone)`,
+      );
+    }
+
+    return resolved;
+  }
+
+  /**
+   * Extrae un chatId `<digits>@c.us` de una respuesta de OpenWA que
+   * puede venir en muchos formatos distintos según la versión:
+   *  - `{ number: "34670209033" }`
+   *  - `{ id: "34670209033@c.us" }`
+   *  - `{ id: { _serialized: "34670209033@c.us", user: "34670209033" } }`
+   *  - `{ wid: { _serialized: "..." } }`
+   *  - `{ jid: "34670209033@s.whatsapp.net" }`
+   */
+  private extractPhoneChatId(data: any): string | null {
+    if (!data || typeof data !== 'object') return null;
+    const candidates: any[] = [
+      data.phoneChatId,
+      data.phone,
+      data.number,
+      data.jid,
+      typeof data.id === 'string' ? data.id : data.id?._serialized,
+      data.id?.user,
+      data.wid?._serialized,
+      data.wid?.user,
+      data.contact?.id?._serialized,
+      data.contact?.number,
+    ];
+    for (const c of candidates) {
+      if (typeof c !== 'string' || !c) continue;
+      // Si trae sufijo phone-like o no trae sufijo (solo dígitos), lo
+      // convertimos a `<digits>@c.us`. Si trae `@lid`, no nos vale.
+      if (c.endsWith('@lid')) continue;
+      const digits = c.replace(/@.+$/, '').replace(/\D/g, '');
+      if (/^\d{6,18}$/.test(digits)) return `${digits}@c.us`;
+    }
+    return null;
+  }
+
   async listSessions() {
     const http = await this.http();
     const { data } = await http.get('/sessions');

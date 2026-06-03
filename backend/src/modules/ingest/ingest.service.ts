@@ -136,26 +136,51 @@ export class IngestService {
       }
 
       const mode = await this.settings.getBotMode();
-      const isAdmin = await this.settings.isAdmin(chatId);
       const isCmd = this.command.isCommand(text);
-      // Calculamos Auto-IA cuanto antes: este flag prevalece sobre whitelist
-      // y sobre el modo `manual` (no sobre silent/maintenance, que son
-      // estados de silenciado intencional).
-      const isAutoTarget = await this.settings.isAutoReply(chatId);
-      const isWhitelisted = await this.settings.isAllowed(chatId);
 
-      // Log estructurado y detallado: si algo no responde, este log lo explica
-      // todo a la primera. Se publica también al panel "Logs" del dashboard
-      // a nivel info para que se vea sin tener que mirar `docker logs`.
+      // WhatsApp moderno entrega muchos chatIds como `@lid` (LinkedId,
+      // opaco). El usuario solo conoce números de teléfono, así que
+      // resolvemos el `@lid` a su `<digits>@c.us` y comprobamos Auto-IA /
+      // whitelist contra AMBOS. De esta forma el usuario mete solo el
+      // número en el dashboard y el sistema hace el matching.
+      // Si chatId ya es `@c.us`, resolveContactPhone lo devuelve tal cual.
+      // Si no se puede resolver, queda el chatId original como única vía.
+      const phoneChatId = chatId.endsWith('@lid')
+        ? await this.openwa.resolveContactPhone(chatId).catch(() => null)
+        : chatId;
+      const aliases = [chatId];
+      if (phoneChatId && phoneChatId !== chatId) aliases.push(phoneChatId);
+
+      const isAdmin =
+        (await this.settings.isAdmin(chatId)) ||
+        (phoneChatId ? await this.settings.isAdmin(phoneChatId) : false);
+      // Calculamos Auto-IA cuanto antes: este flag prevalece sobre whitelist
+      // y sobre el modo `manual` (no sobre maintenance, que es estado de
+      // silenciado intencional). `silent` SÍ lo bypassa Auto-IA: es el caso
+      // de "estoy en examen, responde por mí a estos contactos".
+      const isAutoTarget =
+        (await this.settings.isAutoReply(chatId)) ||
+        (phoneChatId ? await this.settings.isAutoReply(phoneChatId) : false);
+      const isWhitelisted =
+        (await this.settings.isAllowed(chatId)) ||
+        (phoneChatId ? await this.settings.isAllowed(phoneChatId) : false);
+
+      // Log estructurado: si algo no responde, este log lo explica todo a
+      // la primera. Mostramos el `@lid` y el phone resuelto para que se
+      // vea sin tener que mirar `docker logs`.
+      const aliasLabel =
+        phoneChatId && phoneChatId !== chatId
+          ? `${chatId} (phone=${phoneChatId})`
+          : chatId;
       this.logger.log(
-        `[ingest] ${chatId} text="${text.slice(0, 40)}" mode=${mode} ` +
+        `[ingest] ${aliasLabel} text="${text.slice(0, 40)}" mode=${mode} ` +
           `isAdmin=${isAdmin} isCmd=${isCmd} isAutoTarget=${isAutoTarget} ` +
           `isWhitelisted=${isWhitelisted}`,
       );
       await this.logs.write(
         'debug',
         'webhook',
-        `<- ${chatId} mode=${mode} admin=${isAdmin} autoIA=${isAutoTarget} ` +
+        `<- ${aliasLabel} mode=${mode} admin=${isAdmin} autoIA=${isAutoTarget} ` +
           `whitelist=${isWhitelisted} cmd=${isCmd} text="${text.slice(0, 60)}"`,
       );
 
@@ -194,20 +219,23 @@ export class IngestService {
 
       const allowed = isAdmin || isAutoTarget || isWhitelisted;
       if (!allowed) {
-        // Log friendly: incluye el displayName y el chatId completo (ya sea
-        // @c.us o @lid) en formato pegable directo a la lista Auto-IA.
-        // Esto es crítico para WhatsApp moderno: cuando llega como @lid,
-        // el usuario no sabe a qué número corresponde. Mostramos el nombre
-        // que WhatsApp asignó al contacto en su libreta.
+        // Log friendly: incluye displayName, el chatId crudo y el TELÉFONO
+        // resuelto si lo tenemos. El usuario solo necesita pegar el número
+        // (sin sufijo, con +, espacios, da igual) en Ajustes → Auto-IA;
+        // el sistema lo normaliza y matchea contra el lid en la siguiente
+        // recepción gracias a resolveContactPhone.
         const who = displayName ? `"${displayName}"` : 'sin nombre';
+        const pasteable = phoneChatId
+          ? phoneChatId.replace(/@c\.us$/, '')
+          : chatId;
         this.logger.log(
-          `[ingest] descartado ${chatId} (${who}): NO permitido (whitelist)`,
+          `[ingest] descartado ${aliasLabel} (${who}): NO permitido (whitelist)`,
         );
         await this.logs.write(
           'warn',
           'webhook',
-          `<- ${chatId} ${who}: NO permitido. Copia este chatId y pégalo en ` +
-            `Ajustes → Auto-IA (o en Whitelist si quieres modo private/ai). ` +
+          `<- ${aliasLabel} ${who}: NO permitido. ` +
+            `Pega "${pasteable}" en Ajustes → Auto-IA (o Whitelist) y volvera a funcionar. ` +
             `Texto: "${text.slice(0, 60)}"`,
         );
         return { ok: true, ignored: 'not_allowed' };
