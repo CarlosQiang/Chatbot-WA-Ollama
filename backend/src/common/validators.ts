@@ -13,43 +13,66 @@ export function isValidOllamaUrl(url: string): boolean {
 
 export function isValidChatId(chatId: string): boolean {
   if (!chatId || typeof chatId !== 'string') return false;
-  return /^\d{6,18}@c\.us$/.test(chatId);
+  // Aceptamos tres formatos de chatId que WhatsApp/OpenWA puede entregar:
+  //  - <digits>@c.us          (formato clásico phone-based)
+  //  - <digits>@s.whatsapp.net (Baileys; sinónimo de @c.us)
+  //  - <digits>@lid           (LinkedId, alias opaco por contacto que WA
+  //    empezó a usar más en 2025+; NO es un número de teléfono).
+  return /^\d{6,20}@(c\.us|s\.whatsapp\.net|lid)$/i.test(chatId);
 }
 
 /**
- * Normaliza un chatId al formato canónico `34XXXXXXXXX@c.us`.
+ * Normaliza un chatId al formato canónico, preservando el SUFIJO real
+ * para no confundir identidades distintas:
+ *  - phone-based  -> `<digits>@c.us`  (sufijos `@c.us`, `@s.whatsapp.net`,
+ *                                      o sin sufijo se asumen phone)
+ *  - LinkedId     -> `<digits>@lid`   (`@lid` se preserva — un `@lid` NO
+ *                                      es el mismo contacto que su número
+ *                                      de teléfono; son namespaces aparte
+ *                                      desde el punto de vista de OpenWA).
  *
- * Acepta:
- *  - Con o sin sufijo `@c.us` / `@s.whatsapp.net`
- *  - Con o sin prefijo `+`, espacios, paréntesis, guiones
- *  - Mayúsculas/minúsculas en el sufijo
+ * Devuelve `null` si no se puede normalizar.
  *
- * Devuelve `null` si no se puede normalizar a algo válido.
+ * Por qué preservamos `@lid` en lugar de remapear a `@c.us`: WhatsApp ha
+ * empezado a entregar los mensajes entrantes con `@lid` en muchos casos
+ * (privacy / multi-device). El número que el usuario escribe en la lista
+ * Auto-IA es un teléfono (-> `@c.us`), pero el mensaje entrante puede
+ * llegar con `@lid`. Estos dos chatIds NO son iguales y matchearlos a
+ * ciegas no es seguro. La solución es que el usuario añada el `@lid`
+ * directamente a la lista (lo verá en los logs / en el panel de "último
+ * contacto"), no que los normalicemos al mismo string.
  *
  * Ejemplos:
- *   "34670209033@c.us"       -> "34670209033@c.us"
- *   "+34 670 20 90 33"       -> "34670209033@c.us"
- *   "34670209033@C.US"       -> "34670209033@c.us"
+ *   "34670209033@c.us"           -> "34670209033@c.us"
+ *   "+34 670 20 90 33"           -> "34670209033@c.us"
+ *   "34670209033@C.US"           -> "34670209033@c.us"
  *   "34670209033@s.whatsapp.net" -> "34670209033@c.us"
- *   ""                       -> null
+ *   "165927622602815@lid"        -> "165927622602815@lid"
+ *   "165927622602815@LID"        -> "165927622602815@lid"
+ *   ""                           -> null
  */
 export function normalizeChatId(input: unknown): string | null {
   if (typeof input !== 'string') return null;
   const raw = input.trim();
   if (!raw) return null;
 
-  // Si trae un sufijo conocido, conserva solo la parte numérica del local-part.
-  // Si no, asume que es solo el número (con o sin "+", espacios, etc.).
+  // Detectar sufijo y aislar la parte local.
+  let suffix: 'c.us' | 'lid' = 'c.us';
   let localPart = raw;
-  const atIdx = raw.indexOf('@');
+  const atIdx = raw.lastIndexOf('@');
   if (atIdx >= 0) {
+    const tail = raw.slice(atIdx + 1).toLowerCase();
     localPart = raw.slice(0, atIdx);
+    if (tail === 'lid') suffix = 'lid';
+    else suffix = 'c.us'; // c.us, s.whatsapp.net y cualquier otro phone-like
   }
 
   const digits = localPart.replace(/\D/g, '');
-  if (!/^\d{6,18}$/.test(digits)) return null;
+  // Los IDs `@lid` pueden ser bastante más largos que un teléfono (hasta
+  // ~20 dígitos en lo observado), así que ensanchamos el rango.
+  if (!/^\d{6,20}$/.test(digits)) return null;
 
-  return `${digits}@c.us`;
+  return `${digits}@${suffix}`;
 }
 
 /**

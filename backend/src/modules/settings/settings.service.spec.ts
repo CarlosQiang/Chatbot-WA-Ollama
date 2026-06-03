@@ -60,6 +60,21 @@ describe('normalizeChatId', () => {
   it('devuelve null si no hay dígitos suficientes', () => {
     expect(normalizeChatId('123@c.us')).toBeNull();
   });
+
+  // WhatsApp ha empezado a entregar muchos mensajes con sufijo @lid
+  // (LinkedId, opaco, no es el teléfono). Lo preservamos tal cual; NO
+  // lo remapeamos a @c.us porque son namespaces distintos.
+  it('preserva @lid en lugar de remapearlo a @c.us', () => {
+    expect(normalizeChatId('165927622602815@lid')).toBe('165927622602815@lid');
+  });
+  it('ignora mayúsculas también en el sufijo @LID', () => {
+    expect(normalizeChatId('165927622602815@LID')).toBe('165927622602815@lid');
+  });
+  it('acepta @lid con dígitos largos (hasta 20)', () => {
+    expect(normalizeChatId('12345678901234567890@lid')).toBe(
+      '12345678901234567890@lid',
+    );
+  });
 });
 
 describe('normalizeChatIdList', () => {
@@ -87,6 +102,11 @@ describe('normalizeChatIdList', () => {
     expect(normalizeChatIdList('foo, 34670209033, , 12')).toEqual([
       '34670209033@c.us',
     ]);
+  });
+  it('acepta lista mixta @c.us + @lid sin colisionar namespaces', () => {
+    expect(
+      normalizeChatIdList('34670209033, 165927622602815@lid'),
+    ).toEqual(['34670209033@c.us', '165927622602815@lid']);
   });
 });
 

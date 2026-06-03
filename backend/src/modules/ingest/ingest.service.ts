@@ -194,13 +194,21 @@ export class IngestService {
 
       const allowed = isAdmin || isAutoTarget || isWhitelisted;
       if (!allowed) {
-        this.logger.log(`[ingest] descartado ${chatId}: NO permitido (whitelist)`);
+        // Log friendly: incluye el displayName y el chatId completo (ya sea
+        // @c.us o @lid) en formato pegable directo a la lista Auto-IA.
+        // Esto es crítico para WhatsApp moderno: cuando llega como @lid,
+        // el usuario no sabe a qué número corresponde. Mostramos el nombre
+        // que WhatsApp asignó al contacto en su libreta.
+        const who = displayName ? `"${displayName}"` : 'sin nombre';
+        this.logger.log(
+          `[ingest] descartado ${chatId} (${who}): NO permitido (whitelist)`,
+        );
         await this.logs.write(
           'warn',
           'webhook',
-          `<- ${chatId}: NO permitido. Ni admin, ni Auto-IA, ni whitelist. ` +
-            'Añade el número en Ajustes → Auto-IA (si quieres respuesta IA) ' +
-            'o en Whitelist (modo private/ai).',
+          `<- ${chatId} ${who}: NO permitido. Copia este chatId y pégalo en ` +
+            `Ajustes → Auto-IA (o en Whitelist si quieres modo private/ai). ` +
+            `Texto: "${text.slice(0, 60)}"`,
         );
         return { ok: true, ignored: 'not_allowed' };
       }
