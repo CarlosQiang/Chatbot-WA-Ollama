@@ -159,10 +159,24 @@ export class IngestService {
           `whitelist=${isWhitelisted} cmd=${isCmd} text="${text.slice(0, 60)}"`,
       );
 
-      if (mode === 'silent') {
-        this.logger.debug(`[ingest] descartado ${chatId}: modo silent`);
+      // Modo silent = "no respondo a nadie". PERO Auto-IA tiene que seguir
+      // respondiendo a su lista: el caso de uso real es "estoy en examen,
+      // que el bot conteste por mí a estos contactos específicos". Si silent
+      // bloquease también Auto-IA, la feature sería inútil en su escenario
+      // principal. Maintenance sí bloquea Auto-IA porque es modo operacional
+      // (cambios de config, ollama caído, etc.).
+      if (mode === 'silent' && !isAutoTarget) {
+        this.logger.debug(`[ingest] descartado ${chatId}: modo silent (no Auto-IA)`);
         await this.logs.write('debug', 'webhook', `[silent] <- ${chatId}: ${text.slice(0, 60)}`);
         return { ok: true, ignored: 'silent' };
+      }
+      if (mode === 'silent' && isAutoTarget) {
+        this.logger.log(`[ingest] ${chatId}: silent OVERRIDE por Auto-IA`);
+        await this.logs.write(
+          'info',
+          'webhook',
+          `[silent+AUTO-IA] <- ${chatId}: respondo igual porque está en lista Auto-IA`,
+        );
       }
 
       if (mode === 'maintenance') {

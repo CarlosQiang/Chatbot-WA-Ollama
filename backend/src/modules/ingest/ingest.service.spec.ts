@@ -213,15 +213,31 @@ describe('IngestService.ingest — Auto-IA (fix)', () => {
 });
 
 describe('IngestService.ingest — modos', () => {
-  it('modo silent: descarta todo silenciosamente', async () => {
+  it('modo silent + chat NO Auto-IA: descarta silenciosamente', async () => {
     const { svc, chat, openwa } = build({
       mode: 'silent',
-      autoReply: [userId],
+      allowed: [userId],
     });
     const r = await svc.ingest({ data: { chatId: userId, body: 'hola' } });
     expect(r).toEqual({ ok: true, ignored: 'silent' });
     expect(chat.generateAndReply).not.toHaveBeenCalled();
     expect(openwa.sendText).not.toHaveBeenCalled();
+  });
+
+  // El caso de uso real: Carlos en examen, modo silent, Auto-IA encendido.
+  // Solo los contactos de la lista Auto-IA deben recibir respuesta IA.
+  it('modo silent + chat EN Auto-IA: responde igual (override)', async () => {
+    const { svc, chat } = build({
+      mode: 'silent',
+      autoReply: [userId],
+    });
+    const r = await svc.ingest({ data: { chatId: userId, body: 'estas?' } });
+    expect(r.ok).toBe(true);
+    expect(r.handled).toBe('chat');
+    expect(chat.generateAndReply).toHaveBeenCalledWith(
+      userId,
+      expect.objectContaining({ isAutoReply: true }),
+    );
   });
 
   it('modo manual sin Auto-IA y sin admin: ignora mensajes normales', async () => {
