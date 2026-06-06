@@ -239,11 +239,27 @@ export class OpenWaService {
         () => http.post(`/sessions/${sid}/getNumberProfile`, { chatId }),
       ];
 
+      // Dígitos del lid original — necesitamos compararlos con cualquier
+      // "phone" que devuelva OpenWA. Muchas versiones de OpenWA devuelven
+      // EL MISMO lid disfrazado con sufijo @c.us; eso no es resolución
+      // real, es ruido. Filtramos esos falsos positivos.
+      const lidDigits = chatId.replace(/@lid$/i, '').replace(/\D/g, '');
+
       for (const call of candidates) {
         try {
           const { data } = await call();
-          resolved = this.extractPhoneChatId(data);
-          if (resolved) break;
+          const candidate = this.extractPhoneChatId(data);
+          if (!candidate) continue;
+          // Rechazo 1: dígitos idénticos al lid -> el endpoint no resolvió,
+          // solo nos devolvió el mismo id con otro sufijo.
+          if (candidate.replace(/@c\.us$/, '') === lidDigits) continue;
+          // Rechazo 2: más de 15 dígitos no es un teléfono E.164 válido.
+          // Los `@lid` opacos suelen tener 14-18 dígitos. Los teléfonos
+          // reales (incluidos los más largos) caben en 15.
+          const candDigits = candidate.replace(/@c\.us$/, '');
+          if (candDigits.length > 15) continue;
+          resolved = candidate;
+          break;
         } catch {
           // siguiente
         }

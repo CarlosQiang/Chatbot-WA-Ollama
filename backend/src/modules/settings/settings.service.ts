@@ -255,6 +255,31 @@ export class SettingsService {
    * o como string CSV (`"34X,+34Y, 34 Z"`); se normaliza y deduplica.
    * Si chatIds llega `undefined`, no se toca la lista (solo se guarda enabled).
    */
+  /**
+   * Añade UN chatId a la lista Auto-IA sin tocar el resto. Pensado para
+   * el flujo "click en pendiente -> añadir". Si la feature Auto-IA estaba
+   * deshabilitada, NO la habilita sola (decisión consciente del usuario).
+   * El chatId se normaliza (acepta `@c.us`, `@lid`, teléfono crudo).
+   * Si ya estaba, no duplica. Devuelve el estado actualizado.
+   */
+  async addAutoReply(chatId: string, auditedBy?: string) {
+    const n = normalizeChatId(chatId);
+    if (!n) {
+      throw new Error(
+        `chatId inválido: "${chatId}". Esperaba número, "<digits>@c.us" o "<digits>@lid".`,
+      );
+    }
+    const current = await this.getAutoReply();
+    if (current.chatIds.includes(n)) return current;
+    const next = [...current.chatIds, n];
+    await this.set(
+      SETTING_KEYS.AUTO_REPLY_CHAT_IDS,
+      next.join(','),
+      auditedBy,
+    );
+    return this.getAutoReply();
+  }
+
   async setAutoReply(
     enabled: boolean,
     chatIds?: string[] | string | null,

@@ -78,6 +78,15 @@ function buildCommand() {
   };
 }
 
+function buildPending() {
+  return {
+    track: stub(async () => null),
+    dismiss: stub(async () => null),
+    list: stub(async () => []),
+    clear: stub(async () => null),
+  };
+}
+
 function build(opts: {
   mode?: string;
   admins?: string[];
@@ -92,6 +101,7 @@ function build(opts: {
   const intent = buildIntent(opts.intent);
   const logs = buildLogs();
   const command = buildCommand();
+  const pending = buildPending();
 
   const svc = new IngestService(
     chat as any,
@@ -100,9 +110,10 @@ function build(opts: {
     logs as any,
     settings as any,
     intent as any,
+    pending as any,
   );
 
-  return { svc, settings, openwa, chat, intent, logs, command };
+  return { svc, settings, openwa, chat, intent, logs, command, pending };
 }
 
 const userId = '34670209033@c.us';
@@ -239,16 +250,37 @@ describe('IngestService.ingest — Auto-IA (fix)', () => {
     );
   });
 
-  it('@lid entrante que NO se resuelve: cae a "not_allowed" con log pegable', async () => {
+  it('@lid entrante que NO se resuelve: cae a "not_allowed" + se registra como pendiente', async () => {
     const lid = '999999999999999@lid';
-    const { svc, chat } = build({
+    const { svc, chat, pending } = build({
       mode: 'private',
       autoReply: [userId],
       lidResolvesTo: null, // OpenWA no lo resuelve
     });
-    const r = await svc.ingest({ data: { chatId: lid, body: 'hola' } });
+    const r = await svc.ingest({
+      data: { chatId: lid, body: 'hola', senderName: 'Juan' },
+    });
     expect(r).toEqual({ ok: true, ignored: 'not_allowed' });
     expect(chat.generateAndReply).not.toHaveBeenCalled();
+    // El contacto se registra en pending para el dashboard.
+    expect(pending.track).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId: lid,
+        displayName: 'Juan',
+        text: 'hola',
+      }),
+    );
+  });
+
+  it('newsletter NO se registra como pendiente (no es un contacto real)', async () => {
+    const newsletterId = '120363169328266116@newsletter';
+    const { svc, pending } = build({
+      mode: 'private',
+    });
+    await svc.ingest({
+      data: { chatId: newsletterId, body: 'spam de newsletter' },
+    });
+    expect(pending.track).not.toHaveBeenCalled();
   });
 });
 

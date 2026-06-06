@@ -5,6 +5,7 @@ import { OpenWaService } from '../openwa/openwa.service';
 import { LogsService } from '../logs/logs.service';
 import { SettingsService } from '../settings/settings.service';
 import { IntentService } from '../intent/intent.service';
+import { PendingContactsService } from './pending-contacts.service';
 
 const BOT_SIGNATURE = '​‌​';
 const isBotSigned = (t: string) =>
@@ -36,6 +37,7 @@ export class IngestService {
     private readonly logs: LogsService,
     private readonly settings: SettingsService,
     private readonly intent: IntentService,
+    private readonly pending: PendingContactsService,
   ) {}
 
   extract(payload: any) {
@@ -235,9 +237,17 @@ export class IngestService {
           'warn',
           'webhook',
           `<- ${aliasLabel} ${who}: NO permitido. ` +
-            `Pega "${pasteable}" en Ajustes → Auto-IA (o Whitelist) y volvera a funcionar. ` +
+            `Abre Dashboard → Pendientes para añadirlo con un click. ` +
+            `(O pega "${pasteable}" en Ajustes → Auto-IA). ` +
             `Texto: "${text.slice(0, 60)}"`,
         );
+        // Lo registramos como pendiente para que aparezca en el dashboard
+        // con su texto y nombre. El usuario lo añade con un click sin
+        // tener que tocar logs ni IDs opacos. Ignoramos newsletter y otros
+        // canales no-1to1 — no son contactos de WhatsApp normales.
+        if (!chatId.endsWith('@newsletter') && !chatId.endsWith('@g.us')) {
+          await this.pending.track({ chatId, displayName, text });
+        }
         return { ok: true, ignored: 'not_allowed' };
       }
 
