@@ -218,11 +218,32 @@ export class OpenWaService {
     }
     if (!chatId.endsWith('@lid')) return null;
 
-    const cacheKey = `wa:lid2phone:${chatId}`;
+    // Versión v2 del cache: el deploy anterior cacheó "phones" falsos
+    // (mismos dígitos que el lid). Subir el prefijo invalida TODAS las
+    // entradas viejas sin tener que correr un FLUSHDB.
+    const cacheKey = `wa:lid2phone:v2:${chatId}`;
+    const lidDigitsForRead = chatId.replace(/@lid$/i, '').replace(/\D/g, '');
     try {
       const cached = await this.redis.get(cacheKey);
       if (cached === '__none__') return null;
-      if (cached) return cached;
+      if (cached) {
+        // Defense-in-depth: si una entrada cacheada coincide en dígitos
+        // con el lid (no debería con el v2, pero por si acaso futuro),
+        // la descartamos y forzamos re-resolución.
+        const cachedDigits = cached.replace(/@c\.us$/, '');
+        const cachedTooLong = cachedDigits.length > 15;
+        const cachedSameAsLid = cachedDigits === lidDigitsForRead;
+        if (cachedSameAsLid || cachedTooLong) {
+          await this.redis.del(cacheKey).catch(() => null);
+          await this.logs.write(
+            'warn',
+            'openwa',
+            `LID cache corrupto descartado para ${chatId} (valor "${cached}")`,
+          );
+        } else {
+          return cached;
+        }
+      }
     } catch {}
 
     let resolved: string | null = null;
@@ -297,6 +318,47 @@ export class OpenWaService {
     }
 
     return resolved;
+  }
+
+  /**
+   * Borra TODAS las entradas del cache lid→phone. Útil cuando una
+   * versión anterior cacheó datos erróneos y quieres limpiarlas sin
+   * esperar al TTL de 7 días. Devuelve el nº de entradas borradas.
+   */
+  async purgeLidCache(): Promise<number> {
+    let removed = 0;
+    try {
+      // SCAN para no bloquear Redis con KEYS en producción.
+      let cursor = '0';
+      do {
+        const [next, batch] = await this.redis.client.scan(
+          cursor,
+          'MATCH',
+          'wa:lid2phone:*',
+          'COUNT',
+          100,
+        );
+        cursor = next;
+        if (batch.length) {
+          await this.redis.client.del(...batch);
+          removed += batch.length;
+        }
+      } while (cursor !== '0');
+    } catch (err) {
+      await this.logs.write(
+        'warn',
+        'openwa',
+        `purgeLidCache fallo: ${(err as Error).message}`,
+      );
+    }
+    if (removed > 0) {
+      await this.logs.write(
+        'info',
+        'openwa',
+        `LID cache purgado: ${removed} entradas eliminadas`,
+      );
+    }
+    return removed;
   }
 
   /**

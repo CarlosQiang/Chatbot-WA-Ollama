@@ -66,6 +66,17 @@ export class OpenWaController {
     return this.openwa.startSession();
   }
 
+  /**
+   * Limpia el cache de mapeos `@lid -> @c.us` en Redis. Útil cuando una
+   * versión anterior cacheó mappings erróneos y queremos forzar
+   * re-resolución sin esperar al TTL de 7 días.
+   */
+  @Post('lid-cache/purge')
+  async purgeLidCache() {
+    const removed = await this.openwa.purgeLidCache();
+    return { ok: true, removed };
+  }
+
   @Post('session/stop')
   stop() {
     return this.openwa.stopSession();
