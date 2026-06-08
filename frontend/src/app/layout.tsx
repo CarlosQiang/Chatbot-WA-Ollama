@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { Providers } from './providers';
-import { ANTI_FOUC_SCRIPT } from '@/lib/theme-script';
 
 export const metadata: Metadata = {
   title: {
@@ -19,17 +18,16 @@ export const viewport = {
   initialScale: 1,
 };
 
+// Script anti-FOUC inline — evita flash de tema incorrecto en el primer render.
+// Inlineado directamente (sin import) para máxima compatibilidad con Next.js App Router.
+// Se ejecuta síncronamente al inicio del <body>, antes del primer paint.
+const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem('theme')||'system';var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d);document.documentElement.style.colorScheme=d?'dark':'light';}catch(e){}})();`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es" suppressHydrationWarning>
       <body className="min-h-screen bg-bg text-fg antialiased">
-        {/*
-          Script inline anti-FOUC: va en <body> (antes de Providers) porque
-          Next.js App Router gestiona <head> internamente y no acepta <head>
-          manual en el layout. El script se ejecuta síncronamente antes del
-          primer paint gracias a su posición al inicio del body.
-        */}
-        <script dangerouslySetInnerHTML={{ __html: ANTI_FOUC_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
         <Providers>{children}</Providers>
       </body>
     </html>
