@@ -11,18 +11,32 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
 /**
- * Normalización en el cliente · espejo de `normalizeChatId` del backend.
- * Acepta cualquier formato razonable y devuelve `34XXXXXXXXX@c.us`, o null.
+ * Normalización en el cliente · espejo EXACTO de `normalizeChatId` del
+ * backend. Acepta tres formatos y los devuelve canónicos:
+ *  - phone-based (sin sufijo, `@c.us`, `@s.whatsapp.net`) -> `<digits>@c.us`
+ *  - LinkedId (`<digits>@lid`) -> `<digits>@lid` (PRESERVA el sufijo)
+ *
+ * Crítico para WhatsApp moderno: cuando el usuario pega un `@lid`
+ * (que es lo que ve en los logs y en pendientes), debemos preservarlo.
+ * Forzarlo a `@c.us` rompe el matching contra los mensajes entrantes.
  */
 function normalizeChatId(input: string): string | null {
   if (typeof input !== 'string') return null;
   const raw = input.trim();
   if (!raw) return null;
-  const atIdx = raw.indexOf('@');
-  const localPart = atIdx >= 0 ? raw.slice(0, atIdx) : raw;
+
+  let suffix: 'c.us' | 'lid' = 'c.us';
+  let localPart = raw;
+  const atIdx = raw.lastIndexOf('@');
+  if (atIdx >= 0) {
+    const tail = raw.slice(atIdx + 1).toLowerCase();
+    localPart = raw.slice(0, atIdx);
+    if (tail === 'lid') suffix = 'lid';
+  }
+
   const digits = localPart.replace(/\D/g, '');
-  if (!/^\d{6,18}$/.test(digits)) return null;
-  return `${digits}@c.us`;
+  if (!/^\d{6,20}$/.test(digits)) return null;
+  return `${digits}@${suffix}`;
 }
 
 export function AutoReplyView() {
@@ -48,14 +62,27 @@ export function AutoReplyView() {
 
   const [enabled, setEnabled] = useState(false);
   const [chatIds, setChatIds] = useState<string[]>([]);
+  const [nicknames, setNicknames] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState('');
+  const [draftNickname, setDraftNickname] = useState('');
 
   useEffect(() => {
     if (data) {
       setEnabled(data.enabled);
       setChatIds(data.chatIds || []);
+      setNicknames((data as any).nicknames || {});
     }
   }, [data]);
+
+  // Persiste alias en el backend. No bloqueamos UI — optimistic update.
+  const saveNickname = async (chatId: string, value: string) => {
+    setNicknames((prev) => ({ ...prev, [chatId]: value }));
+    try {
+      await apiClient.setAutoReplyNickname(chatId, value || null);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'No se pudo guardar el alias');
+    }
+  };
 
   const save = useMutation({
     mutationFn: () => apiClient.saveAutoReply({ enabled, chatIds }),
@@ -76,7 +103,9 @@ export function AutoReplyView() {
 
   const addNumber = () => {
     if (!draftPreview) {
-      toast.error('Número inválido. Acepta 612345678, +34612345678, 34 612 345 678...');
+      toast.error(
+        'Inválido. Acepta 612345678, +34612345678, 34 612 345 678 o un chatId con @lid.',
+      );
       return;
     }
     if (chatIds.includes(draftPreview)) {
@@ -84,11 +113,30 @@ export function AutoReplyView() {
       return;
     }
     setChatIds([...chatIds, draftPreview]);
+    if (draftNickname.trim()) {
+      // Optimistic: el nickname queda asociado al chatId nuevo; se
+      // persistirá cuando se haga save (junto con la lista) y mediante
+      // el endpoint de nickname tras save.
+      const alias = draftNickname.trim();
+      setNicknames((prev) => ({ ...prev, [draftPreview]: alias }));
+      // Persistimos también en el backend ahora; si el chatId aún no está
+      // guardado en la lista no pasa nada — el setting acepta cualquier
+      // chatId normalizable.
+      apiClient.setAutoReplyNickname(draftPreview, alias).catch(() => null);
+    }
     setDraft('');
+    setDraftNickname('');
   };
 
   const removeNumber = (id: string) => {
     setChatIds(chatIds.filter((c) => c !== id));
+    setNicknames((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    // Borrado del alias en el backend (idempotente)
+    apiClient.setAutoReplyNickname(id, null).catch(() => null);
   };
 
   const hasChanges =
@@ -220,12 +268,21 @@ export function AutoReplyView() {
                   chatIds.map((id) => (
                     <div
                       key={id}
-                      className="flex items-center justify-between bg-bg-subtle/40 border border-border rounded-md px-3 py-1.5"
+                      className="flex items-center gap-2 bg-bg-subtle/40 border border-border rounded-md px-3 py-1.5"
                     >
-                      <span className="font-mono text-xs">{id}</span>
+                      <input
+                        value={nicknames[id] ?? ''}
+                        onChange={(e) =>
+                          setNicknames((prev) => ({ ...prev, [id]: e.target.value }))
+                        }
+                        onBlur={(e) => saveNickname(id, e.target.value.trim())}
+                        placeholder="Alias (ej: Yago)"
+                        className="bg-transparent border-none outline-none text-xs w-32 placeholder:text-fg-subtle"
+                      />
+                      <span className="font-mono text-xs text-fg-muted flex-1 truncate">{id}</span>
                       <button
                         onClick={() => removeNumber(id)}
-                        className="text-fg-muted hover:text-danger transition-colors"
+                        className="text-fg-muted hover:text-danger transition-colors shrink-0"
                         aria-label="Quitar"
                       >
                         <X size={13} />
@@ -237,10 +294,16 @@ export function AutoReplyView() {
 
               <div className="flex gap-2">
                 <input
+                  value={draftNickname}
+                  onChange={(e) => setDraftNickname(e.target.value)}
+                  placeholder="Alias (opcional)"
+                  className="input-base w-32"
+                />
+                <input
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && addNumber()}
-                  placeholder="612345678  ·  +34612345678  ·  34 612 345 678"
+                  placeholder="número  ·  +34612345678  ·  6764640657447@lid"
                   className="flex-1 input-base font-mono"
                 />
                 <Button

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Delete,
   Get,
@@ -38,23 +39,28 @@ export class PendingContactsController {
 
   /**
    * Añade el chatId a Auto-IA y lo retira de la lista de pendientes.
-   * Útil para el botón "Añadir" del dashboard. Si Auto-IA estaba
-   * desactivado, NO se enciende solo (decisión explícita del usuario
-   * en otra pantalla, para evitar sorpresas).
+   * Si pasas `nickname` en el body (opcional), se guarda como alias
+   * humano para reconocer al contacto sin tener que recordar el `@lid`.
+   * El toggle Auto-IA se enciende solo (patrón "una acción = funciona").
    */
   @Post(':chatId/add-autoreply')
-  async addToAutoReply(@Param('chatId') chatId: string) {
+  async addToAutoReply(
+    @Param('chatId') chatId: string,
+    @Body() body: { nickname?: string | null } = {},
+  ) {
     if (!chatId) throw new BadRequestException('chatId requerido');
     try {
       const result = await this.settings.addAutoReply(
         chatId,
         'dashboard:pending',
+        body?.nickname ?? null,
       );
       await this.pending.dismiss(chatId);
       await this.logs.write(
         'info',
         'webhook',
-        `Pendiente añadido a Auto-IA: ${chatId}`,
+        `Pendiente añadido a Auto-IA: ${chatId}` +
+          (body?.nickname ? ` (alias: ${body.nickname})` : ''),
       );
       return { ok: true, autoReply: result };
     } catch (err: any) {

@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { DiagnosticsService } from './diagnostics.service';
 import { SettingsService } from '../settings/settings.service';
@@ -32,5 +32,49 @@ export class DiagnosticsController {
       throw new BadRequestException(CHATID_HELP);
     }
     return this.diag.testOllamaWhatsapp(chatId, body?.prompt);
+  }
+
+  /**
+   * Estado consolidado de Auto-IA en una sola llamada. Pensado para que
+   * el usuario sepa de un vistazo si está listo para responder o qué
+   * falta. Incluye `readyToReply` con razón en `reasonNotReady`.
+   */
+  @Get('autoreply')
+  async autoreplyStatus() {
+    const auto = await this.settings.getAutoReply();
+    const persona = await this.settings.getAutoReplyPersona().catch(() => '');
+    const prompt = await this.settings.getAutoReplyPrompt().catch(() => '');
+    const mode = await this.settings.getBotMode().catch(() => 'unknown');
+
+    const reasons: string[] = [];
+    if (!auto.enabled) reasons.push('toggle Auto-IA desactivado');
+    if (auto.chatIds.length === 0) reasons.push('lista de números vacía');
+    if (mode === 'maintenance') reasons.push('bot en modo maintenance');
+    // silent NO bloquea Auto-IA (override aplicado), pero lo mencionamos
+    // por transparencia.
+
+    const readyToReply = reasons.length === 0;
+
+    return {
+      readyToReply,
+      reasonNotReady: reasons.length ? reasons.join(' + ') : null,
+      autoReply: {
+        enabled: auto.enabled,
+        chatIds: auto.chatIds,
+        chatIdsCount: auto.chatIds.length,
+      },
+      persona: {
+        configured: !!persona,
+        preview: persona ? persona.slice(0, 120) : null,
+      },
+      customPrompt: {
+        configured: !!prompt,
+        preview: prompt ? prompt.slice(0, 120) : null,
+      },
+      botMode: mode,
+      hint: readyToReply
+        ? 'Auto-IA listo. Cuando uno de la lista escriba, la IA responderá como tú.'
+        : `Falta: ${reasons.join(', ')}. Añade un contacto con POST /chats/pending/<chatId>/add-autoreply y se activará todo automáticamente.`,
+    };
   }
 }

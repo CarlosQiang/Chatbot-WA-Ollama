@@ -226,6 +226,32 @@ export class SettingsController {
     return this.settings.getAutoReply();
   }
 
+  /**
+   * Setear / borrar el alias humano para un chatId concreto. Pensado
+   * para que el dashboard muestre "Yago", "Marta", etc. en lugar de
+   * `6764640657447@lid`. Body: `{ chatId, nickname }`. `nickname=null|""`
+   * borra el alias.
+   */
+  @Put('auto-reply/nickname')
+  async putAutoReplyNickname(
+    @Body() body: { chatId?: string; nickname?: string | null } = {},
+  ) {
+    const chatId = (body?.chatId || '').trim();
+    if (!chatId) {
+      throw new BadRequestException('chatId requerido');
+    }
+    try {
+      const nicknames = await this.settings.setAutoReplyNickname(
+        chatId,
+        body.nickname ?? null,
+        'dashboard',
+      );
+      return { ok: true, nicknames };
+    } catch (err: any) {
+      throw new BadRequestException(err?.message || 'no se pudo guardar');
+    }
+  }
+
   @Put('auto-reply')
   async putAutoReply(
     @Body()

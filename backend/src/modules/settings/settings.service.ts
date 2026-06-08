@@ -16,6 +16,13 @@ export const SETTING_KEYS = {
   /** Lista CSV de chatIds Auto-IA (formato canónico 34XXXXXXXXX@c.us). */
   AUTO_REPLY_CHAT_IDS: 'autoReplyChatIds',
   /**
+   * JSON `{ "<chatId>": "<nickname>" }` con etiquetas opcionales para
+   * cada número de Auto-IA. Sirve solo para que el usuario sepa quién
+   * es cada @lid sin tener que memorizar IDs opacos. NO afecta a la
+   * lógica de matching — `isAutoReply` sigue usando solo chatIds.
+   */
+  AUTO_REPLY_NICKNAMES: 'autoReplyNicknames',
+  /**
    * chatId WhatsApp personal del usuario. Destino por defecto para
    * recordatorios y notas creados desde Telegram o dashboard.
    * Si está vacío, fallback al self-chat del bot (OPENWA_SESSION_PHONE@c.us).
@@ -229,7 +236,11 @@ export class SettingsService {
    * Migración runtime: si solo existe el legacy `autoReplyChatId` (single)
    * pero no la lista nueva, lo migra a la lista al primer acceso.
    */
-  async getAutoReply(): Promise<{ enabled: boolean; chatIds: string[] }> {
+  async getAutoReply(): Promise<{
+    enabled: boolean;
+    chatIds: string[];
+    nicknames: Record<string, string>;
+  }> {
     const en = await this.get(SETTING_KEYS.AUTO_REPLY_ENABLED);
     const csv = await this.get(SETTING_KEYS.AUTO_REPLY_CHAT_IDS);
     let chatIds = normalizeChatIdList(csv);
@@ -247,7 +258,54 @@ export class SettingsService {
       }
     }
 
-    return { enabled: en === 'true', chatIds };
+    const nicknames = await this.getAutoReplyNicknames();
+    return { enabled: en === 'true', chatIds, nicknames };
+  }
+
+  /**
+   * Lee el mapa de nicknames. Si el JSON está corrupto, devuelve `{}`
+   * (no rompe el endpoint; el usuario puede re-setear desde la UI).
+   */
+  async getAutoReplyNicknames(): Promise<Record<string, string>> {
+    const raw = await this.get(SETTING_KEYS.AUTO_REPLY_NICKNAMES);
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const out: Record<string, string> = {};
+        for (const [k, v] of Object.entries(parsed)) {
+          if (typeof v === 'string' && v.trim()) out[k] = v.trim();
+        }
+        return out;
+      }
+    } catch {}
+    return {};
+  }
+
+  /**
+   * Setea el nickname para un chatId concreto. Si `nickname` es vacío
+   * o null, borra el alias. No verifica si el chatId está en la lista
+   * Auto-IA (el usuario puede pre-etiquetar antes de añadirlo).
+   */
+  async setAutoReplyNickname(
+    chatId: string,
+    nickname: string | null,
+    auditedBy?: string,
+  ) {
+    const n = normalizeChatId(chatId);
+    if (!n) throw new Error(`chatId inválido: "${chatId}"`);
+    const current = await this.getAutoReplyNicknames();
+    if (nickname && nickname.trim()) {
+      current[n] = nickname.trim().slice(0, 80);
+    } else {
+      delete current[n];
+    }
+    await this.set(
+      SETTING_KEYS.AUTO_REPLY_NICKNAMES,
+      JSON.stringify(current),
+      auditedBy,
+    );
+    return current;
   }
 
   /**
@@ -256,13 +314,19 @@ export class SettingsService {
    * Si chatIds llega `undefined`, no se toca la lista (solo se guarda enabled).
    */
   /**
-   * Añade UN chatId a la lista Auto-IA sin tocar el resto. Pensado para
-   * el flujo "click en pendiente -> añadir". Si la feature Auto-IA estaba
-   * deshabilitada, NO la habilita sola (decisión consciente del usuario).
+   * Añade UN chatId a la lista Auto-IA y **enciende el toggle** si no
+   * lo estaba. Patrón "una sola acción = funcionando" — el usuario no
+   * tiene que recordar luego activar el toggle. Si todavía hubiera lista
+   * vacía + enabled=true, el toggle se queda como estaba.
+   *
    * El chatId se normaliza (acepta `@c.us`, `@lid`, teléfono crudo).
    * Si ya estaba, no duplica. Devuelve el estado actualizado.
    */
-  async addAutoReply(chatId: string, auditedBy?: string) {
+  async addAutoReply(
+    chatId: string,
+    auditedBy?: string,
+    nickname?: string | null,
+  ) {
     const n = normalizeChatId(chatId);
     if (!n) {
       throw new Error(
@@ -270,13 +334,57 @@ export class SettingsService {
       );
     }
     const current = await this.getAutoReply();
-    if (current.chatIds.includes(n)) return current;
-    const next = [...current.chatIds, n];
+    const alreadyInList = current.chatIds.includes(n);
+
+    if (!alreadyInList) {
+      const next = [...current.chatIds, n];
+      await this.set(
+        SETTING_KEYS.AUTO_REPLY_CHAT_IDS,
+        next.join(','),
+        auditedBy,
+      );
+    }
+    // Enciende el toggle si estaba apagado. Mismo patrón que tienen
+    // Recordatorios/Notas: si configuras destino, queda funcionando sin
+    // pasos extra.
+    if (!current.enabled) {
+      await this.set(SETTING_KEYS.AUTO_REPLY_ENABLED, 'true', auditedBy);
+    }
+    // Guarda nickname si se pasó. Pasar nickname con un chatId que ya
+    // estaba en la lista te permite renombrarlo en una sola llamada.
+    if (nickname !== undefined && nickname !== null) {
+      await this.setAutoReplyNickname(n, nickname, auditedBy);
+    }
+    return this.getAutoReply();
+  }
+
+  /**
+   * Quita UN chatId de la lista Auto-IA. Si tras la operación la lista
+   * queda vacía, APAGA el toggle (la feature pierde sentido sin
+   * destinatarios y dejar enabled=true sin chatIds genera confusión).
+   */
+  async removeAutoReply(chatId: string, auditedBy?: string) {
+    const n = normalizeChatId(chatId);
+    if (!n) {
+      throw new Error(
+        `chatId inválido: "${chatId}".`,
+      );
+    }
+    const current = await this.getAutoReply();
+    const next = current.chatIds.filter((c) => c !== n);
     await this.set(
       SETTING_KEYS.AUTO_REPLY_CHAT_IDS,
       next.join(','),
       auditedBy,
     );
+    if (next.length === 0 && current.enabled) {
+      await this.set(SETTING_KEYS.AUTO_REPLY_ENABLED, 'false', auditedBy);
+    }
+    // Limpia el nickname asociado — al borrar el contacto no tiene
+    // sentido conservar el alias huérfano.
+    if (current.nicknames[n]) {
+      await this.setAutoReplyNickname(n, null, auditedBy);
+    }
     return this.getAutoReply();
   }
 

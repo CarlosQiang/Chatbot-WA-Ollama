@@ -200,10 +200,22 @@ export const apiClient = {
   // ─── Auto-Reply IA ─────────────────────────────────────────
   getAutoReply: () =>
     api
-      .get<{ enabled: boolean; chatIds: string[] }>('/settings/auto-reply')
+      .get<{
+        enabled: boolean;
+        chatIds: string[];
+        nicknames: Record<string, string>;
+      }>('/settings/auto-reply')
       .then((r) => r.data),
   saveAutoReply: (data: { enabled: boolean; chatIds?: string[] }) =>
     api.put('/settings/auto-reply', data).then((r) => r.data),
+  /**
+   * Setea (o borra si `nickname=null`) el alias humano para un chatId.
+   * No requiere que el chatId esté ya en la lista — útil para pre-etiquetar.
+   */
+  setAutoReplyNickname: (chatId: string, nickname: string | null) =>
+    api
+      .put('/settings/auto-reply/nickname', { chatId, nickname })
+      .then((r) => r.data),
   getAutoReplyPrompt: () =>
     api
       .get<{ prompt: string; persona: string; default: string }>(
