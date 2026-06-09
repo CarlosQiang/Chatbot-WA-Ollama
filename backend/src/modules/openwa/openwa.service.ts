@@ -321,6 +321,34 @@ export class OpenWaService {
   }
 
   /**
+   * Guarda un mapeo `@lid -> @c.us` aprendido desde fuera del resolver
+   * (típicamente desde el payload del webhook, donde algunos campos
+   * incluyen el teléfono real). Idempotente. TTL 7 días igual que el
+   * resolver normal.
+   */
+  async cacheLidMapping(lidChatId: string, phoneChatId: string) {
+    if (!lidChatId || !lidChatId.endsWith('@lid')) return;
+    if (!phoneChatId || !phoneChatId.endsWith('@c.us')) return;
+    // Sanity: dígitos del candidato no deben coincidir con el lid.
+    const lidDigits = lidChatId.replace(/@lid$/i, '').replace(/\D/g, '');
+    const phoneDigits = phoneChatId.replace(/@c\.us$/i, '');
+    if (lidDigits === phoneDigits) return;
+    if (phoneDigits.length > 15) return;
+    try {
+      await this.redis.set(
+        `wa:lid2phone:v2:${lidChatId}`,
+        phoneChatId,
+        this.LID_CACHE_TTL_SEC,
+      );
+      await this.logs.write(
+        'info',
+        'openwa',
+        `LID mapping aprendido desde payload: ${lidChatId} -> ${phoneChatId}`,
+      );
+    } catch {}
+  }
+
+  /**
    * Borra TODAS las entradas del cache lid→phone. Útil cuando una
    * versión anterior cacheó datos erróneos y quieres limpiarlas sin
    * esperar al TTL de 7 días. Devuelve el nº de entradas borradas.

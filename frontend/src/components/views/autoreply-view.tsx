@@ -66,6 +66,15 @@ export function AutoReplyView() {
   const [draft, setDraft] = useState('');
   const [draftNickname, setDraftNickname] = useState('');
 
+  // Pendientes: contactos que han escrito al bot pero no están autorizados.
+  // Permite añadirlos con un click + alias, sin mirar logs.
+  const { data: pendingData, refetch: refetchPending } = useQuery({
+    queryKey: ['pendingContacts'],
+    queryFn: apiClient.getPendingContacts,
+    refetchInterval: 10000,
+  });
+  const [pendingAliases, setPendingAliases] = useState<Record<string, string>>({});
+
   useEffect(() => {
     if (data) {
       setEnabled(data.enabled);
@@ -359,6 +368,114 @@ export function AutoReplyView() {
                 <Save size={12} /> Guardar
               </Button>
             </div>
+          </div>
+        )}
+      </Card>
+
+      {/* PENDIENTES: contactos que escribieron sin estar autorizados.
+          El bot los acumula en Redis con su último texto. Aquí los
+          listamos para que el usuario los añada con un click + alias,
+          sin tener que copiar `@lid` opacos de los logs. */}
+      <Card
+        title={
+          <span className="flex items-center gap-2">
+            <AlertTriangle size={13} />
+            Pendientes de autorizar ({pendingData?.items?.length || 0})
+          </span>
+        }
+      >
+        {!pendingData || pendingData.items.length === 0 ? (
+          <div className="text-xs text-fg-muted">
+            No hay contactos pendientes. Cuando alguien que no esté en tu
+            lista te escriba, aparecerá aquí con su último mensaje y
+            podrás añadirlo con un click.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="text-xs text-fg-muted mb-2">
+              Estos contactos te han escrito y NO están autorizados. Pon
+              un alias para reconocerlos (ej: <code>Darío</code>) y dale
+              a <strong>Añadir a Auto-IA</strong>. El sistema activará el
+              toggle solo y la IA responderá a partir del siguiente mensaje.
+            </div>
+            {pendingData.items.map((p) => {
+              const alias = pendingAliases[p.chatId] ?? '';
+              return (
+                <div
+                  key={p.chatId}
+                  className="bg-bg-subtle/40 border border-border rounded-md p-3 space-y-2"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs text-fg-muted">
+                        {p.displayName ? (
+                          <span className="text-fg font-medium">
+                            {p.displayName}
+                          </span>
+                        ) : (
+                          <span className="text-fg-subtle italic">sin nombre</span>
+                        )}
+                        <span className="ml-2 font-mono text-fg-subtle">
+                          {p.chatId}
+                        </span>
+                      </div>
+                      <div className="text-sm text-fg mt-1 truncate">
+                        “{p.lastText}”
+                      </div>
+                      <div className="text-2xs text-fg-subtle mt-0.5">
+                        {new Date(p.lastAt).toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      value={alias}
+                      onChange={(e) =>
+                        setPendingAliases((prev) => ({
+                          ...prev,
+                          [p.chatId]: e.target.value,
+                        }))
+                      }
+                      placeholder="Alias (ej: Darío)"
+                      className="flex-1 input-base"
+                    />
+                    <Button
+                      variant="primary"
+                      onClick={async () => {
+                        try {
+                          await apiClient.addPendingToAutoReply(
+                            p.chatId,
+                            alias.trim() || undefined,
+                          );
+                          toast.success(
+                            `${alias.trim() || p.chatId} añadido a Auto-IA`,
+                          );
+                          await refetchPending();
+                          qc.invalidateQueries({ queryKey: ['autoReply'] });
+                        } catch (e: any) {
+                          toast.error(
+                            e?.response?.data?.message || 'No se pudo añadir',
+                          );
+                        }
+                      }}
+                    >
+                      <Plus size={12} /> Añadir a Auto-IA
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          await apiClient.dismissPending(p.chatId);
+                          await refetchPending();
+                        } catch {}
+                      }}
+                    >
+                      <X size={12} /> Ignorar
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </Card>

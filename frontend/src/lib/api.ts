@@ -216,6 +216,29 @@ export const apiClient = {
     api
       .put('/settings/auto-reply/nickname', { chatId, nickname })
       .then((r) => r.data),
+  // ─── Pendientes (contactos NO autorizados que han escrito) ────
+  getPendingContacts: () =>
+    api
+      .get<{
+        items: Array<{
+          chatId: string;
+          displayName: string;
+          lastText: string;
+          lastAt: number;
+        }>;
+      }>('/chats/pending')
+      .then((r) => r.data),
+  addPendingToAutoReply: (chatId: string, nickname?: string) =>
+    api
+      .post(
+        `/chats/pending/${encodeURIComponent(chatId)}/add-autoreply`,
+        nickname ? { nickname } : {},
+      )
+      .then((r) => r.data),
+  dismissPending: (chatId: string) =>
+    api
+      .delete(`/chats/pending/${encodeURIComponent(chatId)}`)
+      .then((r) => r.data),
   getAutoReplyPrompt: () =>
     api
       .get<{ prompt: string; persona: string; default: string }>(
