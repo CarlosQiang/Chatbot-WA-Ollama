@@ -6,6 +6,7 @@ import { LogsService } from '../logs/logs.service';
 import { SettingsService } from '../settings/settings.service';
 import { IntentService } from '../intent/intent.service';
 import { PendingContactsService } from './pending-contacts.service';
+import { normalizeChatId } from '../../common/validators';
 
 const BOT_SIGNATURE = '​‌​';
 const isBotSigned = (t: string) =>
@@ -57,12 +58,65 @@ export class IngestService {
       fromMe: !!(p.fromMe || p.key?.fromMe || direction === 'outgoing'),
       direction,
       displayName: p.senderName || p.notifyName || p.pushName || p.author,
+      // En WhatsApp moderno (Baileys/OpenWA), cuando `chatId` viene como
+      // `@lid`, OpenWA frecuentemente incluye el TELÉFONO real en otro
+      // campo del payload. Capturamos todos los candidatos posibles y
+      // luego el ingest se queda con el primero que sea un teléfono
+      // válido (no otro lid). Esto permite que el usuario meta solo el
+      // teléfono en la lista Auto-IA y el sistema haga match automático
+      // sin tener que cazar el `@lid` opaco.
+      senderCandidates: [
+        p.senderPn,
+        p.senderPhone,
+        p.senderJid,
+        p.participantPn,
+        p.participant,
+        p.author,
+        p.contact?.id?._serialized,
+        p.contact?.number,
+        p.key?.participant,
+        p.key?.participantPn,
+        p.contextInfo?.participant,
+        p.message?.key?.participant,
+      ].filter((x) => typeof x === 'string' && x.length > 0),
     };
   }
 
   async ingest(payload: any): Promise<IngestResult> {
     try {
-      const { id, chatId, text, fromMe, direction, displayName } = this.extract(payload);
+      const { id, chatId, text, fromMe, direction, displayName, senderCandidates } =
+        this.extract(payload);
+
+      // Diagnóstico: si llega un @lid y nuestro extractor NO capturó
+      // ningún sender candidate, loggeamos las claves del payload para
+      // descubrir si OpenWA está poniendo el teléfono en un campo que
+      // todavía no conocemos. Esto se ve UNA SOLA VEZ por payload-shape
+      // gracias al dedupe de message_id en el ingest.
+      if (
+        chatId &&
+        chatId.endsWith('@lid') &&
+        (!senderCandidates || senderCandidates.length === 0)
+      ) {
+        try {
+          const p = payload?.data || payload?.message || payload || {};
+          const topKeys = Object.keys(p).sort().join(',');
+          const sample: Record<string, any> = {};
+          for (const k of Object.keys(p)) {
+            const v = (p as any)[k];
+            // Solo guardamos primitivas y strings cortos — sin recursos pesados.
+            if (typeof v === 'string' && v.length < 80) sample[k] = v;
+            else if (typeof v === 'number' || typeof v === 'boolean') sample[k] = v;
+            else if (v && typeof v === 'object' && !Array.isArray(v)) {
+              sample[k] = `<obj keys=${Object.keys(v).slice(0, 6).join(',')}>`;
+            }
+          }
+          await this.logs.write(
+            'debug',
+            'webhook',
+            `[payload-shape] ${chatId} keys=${topKeys} sample=${JSON.stringify(sample)}`,
+          );
+        } catch {}
+      }
 
       // Detectar eventos de "envio confirmado" sin contenido y silenciarlos
       const eventType: string = payload?.event || payload?.type || '';
@@ -142,14 +196,45 @@ export class IngestService {
 
       // WhatsApp moderno entrega muchos chatIds como `@lid` (LinkedId,
       // opaco). El usuario solo conoce números de teléfono, así que
-      // resolvemos el `@lid` a su `<digits>@c.us` y comprobamos Auto-IA /
-      // whitelist contra AMBOS. De esta forma el usuario mete solo el
-      // número en el dashboard y el sistema hace el matching.
-      // Si chatId ya es `@c.us`, resolveContactPhone lo devuelve tal cual.
-      // Si no se puede resolver, queda el chatId original como única vía.
-      const phoneChatId = chatId.endsWith('@lid')
-        ? await this.openwa.resolveContactPhone(chatId).catch(() => null)
-        : chatId;
+      // intentamos derivar el teléfono real desde varios sitios y
+      // comprobamos Auto-IA / whitelist contra TODAS las variantes:
+      //   1) el chatId tal cual (puede ser `@lid` o `@c.us`)
+      //   2) el teléfono extraído del payload (senderPn, participant, etc.)
+      //   3) el teléfono resuelto por OpenWA (cache 7d, suele fallar pero
+      //      útil cuando funciona)
+      // De esta forma, si el usuario mete el TELÉFONO en la lista y el
+      // payload del webhook trae el teléfono, hace match automático sin
+      // exigirle cazar el `@lid` opaco.
+      let phoneChatId: string | null = chatId.endsWith('@lid') ? null : chatId;
+
+      // Candidatos del payload: nos quedamos con el primer phone-based
+      // válido (descartamos `@lid` repetidos).
+      if (!phoneChatId && senderCandidates && senderCandidates.length) {
+        for (const c of senderCandidates) {
+          const n = normalizeChatId(c);
+          if (n && n.endsWith('@c.us') && n !== chatId) {
+            phoneChatId = n;
+            this.logger.log(
+              `[ingest] ${chatId}: teléfono detectado en payload -> ${phoneChatId}`,
+            );
+            // Cachea el mapeo para que el resolver lo encuentre sin
+            // tener que volver a leer el payload — esto sirve también
+            // para futuras llamadas a settings.isAdmin/isAllowed.
+            await this.openwa
+              .cacheLidMapping(chatId, phoneChatId)
+              .catch(() => null);
+            break;
+          }
+        }
+      }
+
+      // Fallback al resolver de OpenWA (probará el cache primero).
+      if (!phoneChatId && chatId.endsWith('@lid')) {
+        phoneChatId = await this.openwa
+          .resolveContactPhone(chatId)
+          .catch(() => null);
+      }
+
       const aliases = [chatId];
       if (phoneChatId && phoneChatId !== chatId) aliases.push(phoneChatId);
 
