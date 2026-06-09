@@ -292,27 +292,44 @@ export function AutoReplyView() {
                 )}
               </div>
 
-              <div className="flex gap-2">
-                <input
-                  value={draftNickname}
-                  onChange={(e) => setDraftNickname(e.target.value)}
-                  placeholder="Alias (opcional)"
-                  className="input-base w-32"
-                />
-                <input
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && addNumber()}
-                  placeholder="número  ·  +34612345678  ·  6764640657447@lid"
-                  className="flex-1 input-base font-mono"
-                />
-                <Button
-                  variant="outline"
-                  onClick={addNumber}
-                  disabled={!draftValid || draftDuplicate}
-                >
-                  <Plus size={12} /> Añadir
-                </Button>
+              {/* Formulario de añadir — 2 filas claras:
+                  1) Alias (opcional pero recomendado)
+                  2) Número/chatId + botón Añadir.
+                  Diseño así para que el alias sea IMPOSIBLE de no ver. */}
+              <div className="space-y-2">
+                <div>
+                  <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1 block">
+                    Alias (cómo lo identificas — opcional)
+                  </label>
+                  <input
+                    value={draftNickname}
+                    onChange={(e) => setDraftNickname(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && addNumber()}
+                    placeholder="Ej: Yago, Marta, Cliente Juan..."
+                    className="input-base w-full"
+                  />
+                </div>
+                <div>
+                  <label className="text-2xs uppercase tracking-wider text-fg-subtle mb-1 block">
+                    Número o chatId
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && addNumber()}
+                      placeholder="+34612345678  ·  612345678  ·  6764640657447@lid"
+                      className="flex-1 input-base font-mono"
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={addNumber}
+                      disabled={!draftValid || draftDuplicate}
+                    >
+                      <Plus size={12} /> Añadir
+                    </Button>
+                  </div>
+                </div>
               </div>
 
               {draft && draftPreview && (
