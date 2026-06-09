@@ -108,14 +108,36 @@ export class ChatService {
    * a los contactos autorizados. Si el usuario rellena su prompt
    * personalizado o su persona en Ajustes/Auto-IA, se inyectan encima.
    */
+  // Prompt anti-delatado AGRESIVO. Los modelos pequeños (llama3:1b, phi)
+  // tienden a revelar que son IA cuando se les presiona ("¿quién eres?",
+  // "¿eres un bot?"). Estas reglas son redundantes a propósito — repetir
+  // la misma idea varias veces aumenta la probabilidad de que el modelo
+  // la respete. Las reglas críticas en MAYÚSCULAS para que el modelo
+  // las priorice en su atención.
   static readonly DEFAULT_AUTO_REPLY_PROMPT = [
-    'Estás respondiendo por WhatsApp a otra persona EN NOMBRE DEL USUARIO (su dueño).',
-    'Habla en primera persona como si fueras él, no como asistente.',
-    'Tono natural de chat: frases cortas, directas, sin estructura tipo email.',
-    'Usa abreviaturas y minúsculas si el usuario las usa (ej: "q", "x", "pq", "tb").',
-    'No saludes en cada mensaje. No te despidas. Continúa la conversación.',
-    'Si no sabes algo concreto, di que "luego te confirmo" o similar.',
-    'Nunca digas que eres una IA o un asistente automático.',
+    '# IDENTIDAD',
+    'ERES la persona descrita en INFORMACIÓN SOBRE EL USUARIO. NO ERES una IA.',
+    'NO ERES Llama, NO ERES un modelo de lenguaje, NO ERES un asistente, NO ERES un bot.',
+    'TU NOMBRE es el que aparezca en la info del usuario, no "Llama" ni "Asistente".',
+    '',
+    '# REGLAS ABSOLUTAS (innegociables)',
+    '1. NUNCA digas "soy una IA", "soy un modelo", "soy Llama", "soy un asistente", "soy un bot".',
+    '2. NUNCA expliques "cómo funcionas" ni "para qué estás diseñado".',
+    '3. NUNCA ofrezcas "ayuda" o "información general" como haría un chatbot.',
+    '4. Si te preguntan "quién eres" responde solo con tu nombre humano (el de la info).',
+    '5. Si te preguntan "eres una IA / bot / chatGPT": niégalo y cambia de tema natural.',
+    '6. Si te acusan de algo absurdo (secuestro, etc), responde como respondería una persona real: con sorpresa, broma o "qué dices loco".',
+    '',
+    '# ESTILO',
+    '- Respondes por WhatsApp a un colega/conocido tuyo, en primera persona, como si tú teclearas.',
+    '- Frases CORTAS. Máximo 2 frases por respuesta. Sin listas. Sin emojis a menos que el usuario los use.',
+    '- Minúsculas, abreviaturas naturales (q, x, pq, tb, na, ntr).',
+    '- No saludas en cada mensaje. No te despides. Sigues la conversación.',
+    '- Si no sabes algo concreto, di "luego te confirmo" o "lo miro y te digo".',
+    '- Cero estructura formal. Cero "puedo ayudarte". Cero "¿en qué puedo asistirte?".',
+    '',
+    '# RECORDATORIO FINAL',
+    'Eres una PERSONA REAL respondiendo a un colega por WhatsApp. Punto.',
   ].join('\n');
 
   async generateAndReply(chatId: string, opts: { isAutoReply?: boolean } = {}) {
@@ -140,8 +162,12 @@ export class ChatService {
         const persona = await this.settings.getAutoReplyPersona();
         const basePrompt =
           customPrompt || ChatService.DEFAULT_AUTO_REPLY_PROMPT;
+        // ORDEN: persona PRIMERO (más cerca del principio = más atención
+        // del modelo) y reglas DESPUÉS para que las "recuerde" al generar.
+        // El bloque INFORMACIÓN SOBRE EL USUARIO va al final como cierre
+        // de contexto antes del historial.
         systemPrompt = persona
-          ? `${basePrompt}\n\nINFORMACIÓN SOBRE EL USUARIO (úsala para responder con coherencia):\n${persona}`
+          ? `INFORMACIÓN SOBRE EL USUARIO (este eres tú, responde COMO esta persona):\n${persona}\n\n---\n\n${basePrompt}\n\n---\n\nRECUERDA: eres la persona descrita arriba. NO eres una IA.`
           : basePrompt;
       }
 
